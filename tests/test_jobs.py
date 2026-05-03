@@ -25,6 +25,8 @@ def test_job_runner_creates_artifacts(tmp_path: Path) -> None:
     assert job.validation_passed
     assert job.gds_path is not None and Path(job.gds_path).is_file()
     assert job.preview_path is not None and Path(job.preview_path).is_file()
+    assert job.python_code is not None
+    assert "import klayout.db as kdb" in job.python_code
     assert (tmp_path / job.job_id / "job.json").is_file()
     assert [event["event"] for event in job.events] == [
         "semantic_started",

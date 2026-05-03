@@ -27,7 +27,10 @@ def test_server_serves_viewer_page(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "Vibe Layout Viewer" in response.text
-    assert "Generate" in response.text
+    assert "Generate Layout" in response.text
+    assert "Layout Preview" in response.text
+    assert "Artifacts" in response.text
+    assert "Generated Code" in response.text
 
 
 def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
@@ -40,6 +43,7 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     job = response.json()
     assert job["status"] == "completed"
     assert job["validation_passed"]
+    assert "import klayout.db as kdb" in job["python_code"]
     job_id = job["job_id"]
 
     status_response = client.get(f"/api/layouts/{job_id}", headers=headers)

@@ -115,41 +115,56 @@ VIEWER_HTML = r"""<!doctype html>
   <style>
     :root {
       color-scheme: light;
-      --ink: #1d2430;
-      --muted: #617084;
-      --line: #d8dee8;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d0d7e2;
       --panel: #f7f9fc;
-      --accent: #1669d8;
+      --panel-strong: #eef3f8;
+      --accent: #1769d1;
+      --accent-ink: #0f4d9d;
       --bad: #b42318;
       --ok: #067647;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
       color: var(--ink);
       background: #fff;
       display: grid;
-      grid-template-columns: 360px minmax(0, 1fr);
+      grid-template-columns: 280px minmax(300px, 1fr) 260px;
       min-height: 100vh;
+      overflow: hidden;
     }
-    aside {
-      border-right: 1px solid var(--line);
+    .left-panel, .right-panel {
+      min-height: 0;
       background: var(--panel);
       padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 12px;
+      overflow: auto;
     }
-    main {
+    .left-panel { border-right: 1px solid var(--line); }
+    .right-panel { border-left: 1px solid var(--line); }
+    .stage {
       min-width: 0;
+      min-height: 0;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
+      background: #fff;
     }
-    h1 {
-      font-size: 18px;
-      margin: 0 0 4px;
+    h1, h2 {
       letter-spacing: 0;
+      margin: 0;
+    }
+    h1 { font-size: 18px; }
+    h2 { font-size: 14px; }
+    .subtle {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
     }
     label {
       font-size: 12px;
@@ -157,9 +172,7 @@ VIEWER_HTML = r"""<!doctype html>
       display: block;
       margin-bottom: 4px;
     }
-    input, textarea, button {
-      font: inherit;
-    }
+    input, textarea, button { font: inherit; }
     input, textarea {
       width: 100%;
       border: 1px solid var(--line);
@@ -169,9 +182,9 @@ VIEWER_HTML = r"""<!doctype html>
       color: var(--ink);
     }
     textarea {
-      min-height: 160px;
+      min-height: 220px;
       resize: vertical;
-      line-height: 1.4;
+      line-height: 1.45;
     }
     button {
       border: 1px solid var(--accent);
@@ -180,21 +193,21 @@ VIEWER_HTML = r"""<!doctype html>
       border-radius: 6px;
       padding: 9px 11px;
       cursor: pointer;
+      white-space: nowrap;
     }
     button.secondary {
       background: #fff;
-      color: var(--accent);
+      color: var(--accent-ink);
     }
     button:disabled {
       opacity: .55;
       cursor: not-allowed;
     }
-    .row {
-      display: flex;
+    .button-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 8px;
-      align-items: center;
     }
-    .row > * { flex: 1; }
     .toolbar {
       border-bottom: 1px solid var(--line);
       padding: 10px 14px;
@@ -202,7 +215,13 @@ VIEWER_HTML = r"""<!doctype html>
       align-items: center;
       gap: 8px;
       min-width: 0;
+      background: #fff;
     }
+    .zoom-group {
+      display: flex;
+      gap: 8px;
+    }
+    .zoom-group button { min-width: 42px; }
     .status {
       margin-left: auto;
       font-size: 13px;
@@ -212,6 +231,7 @@ VIEWER_HTML = r"""<!doctype html>
       white-space: nowrap;
     }
     .viewport {
+      min-height: 0;
       overflow: auto;
       background:
         linear-gradient(45deg, #f2f4f7 25%, transparent 25%),
@@ -222,11 +242,11 @@ VIEWER_HTML = r"""<!doctype html>
       background-position: 0 0, 0 14px, 14px -14px, -14px 0;
       display: grid;
       place-items: center;
-      padding: 24px;
+      padding: 28px;
     }
     .canvas-shell {
-      min-width: 240px;
-      min-height: 240px;
+      min-width: 260px;
+      min-height: 260px;
       display: grid;
       place-items: center;
     }
@@ -235,7 +255,7 @@ VIEWER_HTML = r"""<!doctype html>
       max-width: none;
       border: 1px solid var(--line);
       background: #fff;
-      box-shadow: 0 8px 24px rgba(20, 30, 45, .12);
+      box-shadow: 0 12px 32px rgba(20, 30, 45, .14);
     }
     pre {
       margin: 0;
@@ -244,49 +264,64 @@ VIEWER_HTML = r"""<!doctype html>
       border-radius: 6px;
       padding: 10px;
       min-height: 120px;
-      max-height: 220px;
+      max-height: 260px;
       overflow: auto;
       font-size: 12px;
       line-height: 1.35;
       white-space: pre-wrap;
     }
+    .meta {
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
     .ok { color: var(--ok); }
     .bad { color: var(--bad); }
-    @media (max-width: 900px) {
-      body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+    @media (max-width: 760px) {
+      body {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(520px, 1fr) auto;
+        overflow: auto;
+      }
+      .left-panel, .right-panel {
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        max-height: none;
+      }
+      .right-panel { border-top: 1px solid var(--line); }
     }
   </style>
 </head>
 <body>
-  <aside>
+  <aside class="left-panel">
     <div>
       <h1>Vibe Layout Viewer</h1>
-      <div class="status" id="serverHint">Local realtime preview</div>
+      <div class="subtle">Prompt-driven GDS generation</div>
     </div>
     <div>
       <label for="token">Bearer token</label>
       <input id="token" type="password" autocomplete="off" placeholder="VIBE_LAYOUT_TOKEN">
     </div>
     <div>
-      <label for="prompt">Layout prompt</label>
-      <textarea id="prompt">Vibe_Layout, 양자 홀 효과(Quantum Hall Effect) 측정을 위한 Standard 6-terminal Hall Bar 레이아웃을 설계해줘. 메인 채널의 폭은 $50\mu m$로 하고, 전압 리드(Voltage leads)는 신호 간섭을 줄이기 위해 $10\mu m$ 폭으로 아주 얇게 설계해. 외부 측정 장비와 연결하기 위해 각 리드 끝에는 $200\mu m \times 200\mu m$ 크기의 본딩 패드(Bonding Pad)를 추가해줘. 전체 소자는 (1, 0) 레이어에 배치해</textarea>
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt">Vibe_Layout, design a Standard 6-terminal Hall Bar for Quantum Hall Effect measurement. Use a 50um main channel width, 10um voltage leads, 200um x 200um bonding pads, and place the full device on layer (1, 0).</textarea>
     </div>
-    <button id="generate">Generate</button>
-    <div class="row">
-      <button id="downloadGds" class="secondary" disabled>GDS</button>
-      <button id="downloadPng" class="secondary" disabled>PNG</button>
-    </div>
-    <div>
-      <label>Job</label>
-      <pre id="jobLog">No job yet.</pre>
-    </div>
+    <button id="generate">Generate Layout</button>
+    <div class="meta">Generated GDS and preview files are stored under build/jobs.</div>
   </aside>
-  <main>
+
+  <main class="stage">
     <div class="toolbar">
-      <button class="secondary" id="zoomOut">−</button>
-      <button class="secondary" id="zoomReset">100%</button>
-      <button class="secondary" id="zoomIn">+</button>
+      <h2>Layout Preview</h2>
+      <div class="zoom-group">
+        <button class="secondary" id="zoomOut">-</button>
+        <button class="secondary" id="zoomReset">100%</button>
+        <button class="secondary" id="zoomIn">+</button>
+      </div>
       <span class="status" id="statusText">Ready</span>
     </div>
     <div class="viewport">
@@ -295,12 +330,32 @@ VIEWER_HTML = r"""<!doctype html>
       </div>
     </div>
   </main>
+
+  <aside class="right-panel">
+    <div>
+      <h2>Artifacts</h2>
+      <div class="subtle">Download generated files</div>
+    </div>
+    <div class="button-grid">
+      <button id="downloadGds" class="secondary" disabled>Download GDS</button>
+      <button id="downloadPng" class="secondary" disabled>Download PNG</button>
+    </div>
+    <div>
+      <label>Job Summary</label>
+      <pre id="jobLog">No job yet.</pre>
+    </div>
+    <div>
+      <label>Generated Code</label>
+      <pre id="codeLog">No code yet.</pre>
+    </div>
+  </aside>
   <script>
     const tokenInput = document.getElementById("token");
     const promptInput = document.getElementById("prompt");
     const generateButton = document.getElementById("generate");
     const statusText = document.getElementById("statusText");
     const jobLog = document.getElementById("jobLog");
+    const codeLog = document.getElementById("codeLog");
     const preview = document.getElementById("preview");
     const downloadGds = document.getElementById("downloadGds");
     const downloadPng = document.getElementById("downloadPng");
@@ -326,6 +381,10 @@ VIEWER_HTML = r"""<!doctype html>
       return await response.blob();
     }
 
+    function renderCode(job) {
+      codeLog.textContent = job.python_code || "No code generated.";
+    }
+
     async function renderJob(job) {
       currentJob = job;
       const summary = {
@@ -336,6 +395,7 @@ VIEWER_HTML = r"""<!doctype html>
         findings: job.findings,
       };
       jobLog.textContent = JSON.stringify(summary, null, 2);
+      renderCode(job);
       if (job.status === "completed") {
         const previewBlob = await fetchArtifactBlob(job, "preview.png");
         if (currentPreviewBlobUrl) {
@@ -359,6 +419,7 @@ VIEWER_HTML = r"""<!doctype html>
       preview.hidden = true;
       setStatus("Generating...");
       jobLog.textContent = "Submitting job...";
+      codeLog.textContent = "Waiting for generated artifact metadata...";
       try {
         const response = await fetch("/api/layouts", {
           method: "POST",
@@ -371,6 +432,7 @@ VIEWER_HTML = r"""<!doctype html>
         await renderJob(await response.json());
       } catch (error) {
         jobLog.textContent = String(error);
+        codeLog.textContent = "No code generated.";
         setStatus("Failed", true);
       } finally {
         generateButton.disabled = false;
@@ -382,10 +444,6 @@ VIEWER_HTML = r"""<!doctype html>
       document.getElementById("zoomReset").textContent = `${Math.round(zoom * 100)}%`;
     }
 
-    document.getElementById("zoomIn").addEventListener("click", () => { zoom = Math.min(4, zoom * 1.25); applyZoom(); });
-    document.getElementById("zoomOut").addEventListener("click", () => { zoom = Math.max(.25, zoom / 1.25); applyZoom(); });
-    document.getElementById("zoomReset").addEventListener("click", () => { zoom = 1; applyZoom(); });
-    generateButton.addEventListener("click", generate);
     async function downloadArtifact(artifact, filename) {
       if (!currentJob) return;
       const blob = await fetchArtifactBlob(currentJob, artifact);
@@ -398,6 +456,11 @@ VIEWER_HTML = r"""<!doctype html>
       link.remove();
       URL.revokeObjectURL(url);
     }
+
+    document.getElementById("zoomIn").addEventListener("click", () => { zoom = Math.min(4, zoom * 1.25); applyZoom(); });
+    document.getElementById("zoomOut").addEventListener("click", () => { zoom = Math.max(.25, zoom / 1.25); applyZoom(); });
+    document.getElementById("zoomReset").addEventListener("click", () => { zoom = 1; applyZoom(); });
+    generateButton.addEventListener("click", generate);
     downloadGds.addEventListener("click", () => downloadArtifact("layout.gds", "layout.gds"));
     downloadPng.addEventListener("click", () => downloadArtifact("preview.png", "preview.png"));
     applyZoom();

@@ -28,6 +28,7 @@ class LayoutJob:
     spec: dict | None = None
     gds_path: str | None = None
     preview_path: str | None = None
+    python_code: str | None = None
     validation_passed: bool = False
     findings: list[dict] = field(default_factory=list)
 
@@ -82,6 +83,7 @@ class LayoutJobRunner:
             actuation.build(cad)
             gds_path = cad.write_gds(job_dir / f"{spec.root_cell}.gds").resolve()
             job.gds_path = str(gds_path)
+            job.python_code = actuation.equivalent_python_code(gds_path)
             emit("gds_written", gds_path=job.gds_path)
 
             preview_path = render_gds_preview(gds_path, job_dir / "preview.png", spec.root_cell, spec.layer, spec.datatype).resolve()
