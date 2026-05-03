@@ -9,7 +9,7 @@ import subprocess
 from .cad import CADHarness
 from .actuation import ToolActuationHarness
 from .feedback import FeedbackHarness, ValidationReport
-from .semantic import ElectrodeLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, SemanticHarness
+from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, SemanticHarness
 
 
 def main() -> int:
@@ -77,6 +77,20 @@ def _engineering_analysis(spec: LayoutSpec) -> str:
                 f"- Unit cell: {spec.unit_cell}",
                 f"- Electrode: {spec.electrode_width_um:g}um x {spec.electrode_length_um:g}um centered at unit origin",
                 f"- Hierarchy: {spec.root_cell} contains one {spec.unit_cell} instance at (0um, 0um)",
+            ]
+            + common[2:]
+        )
+    if isinstance(spec, HallBarLayoutSpec):
+        return "\n".join(
+            common[:2]
+            + [
+                f"- Hall cell: {spec.hall_cell}",
+                f"- Structure: standard {spec.terminal_count}-terminal Hall bar",
+                f"- Main channel: {spec.channel_length_um:g}um x {spec.channel_width_um:g}um",
+                f"- Voltage leads: 4 leads, {spec.voltage_lead_width_um:g}um width, {spec.voltage_lead_length_um:g}um length",
+                f"- Bonding pads: 6 pads, {spec.bonding_pad_size_um:g}um x {spec.bonding_pad_size_um:g}um",
+                f"- Voltage probe spacing: {spec.voltage_probe_spacing_um:g}um",
+                f"- Hierarchy: {spec.root_cell} contains one {spec.hall_cell} instance at (0um, 0um)",
             ]
             + common[2:]
         )

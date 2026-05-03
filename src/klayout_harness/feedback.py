@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .cad import RecordingBackend
 from .context import DesignContext
-from .semantic import ElectrodeLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, maps_exactly_to_dbu
+from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, maps_exactly_to_dbu
 
 
 @dataclass(frozen=True)
@@ -148,7 +148,7 @@ class FeedbackHarness:
             )
 
         root = layout.cell(spec.root_cell)
-        child_cell_name = spec.unit_cell if isinstance(spec, ElectrodeLayoutSpec) else spec.channel_cell
+        child_cell_name = _child_cell_name(spec)
         unit = layout.cell(child_cell_name)
         if root is None:
             findings.append(_finding("cell.missing", spec.root_cell, None, f"Missing cell '{spec.root_cell}'."))
@@ -191,6 +191,15 @@ class FeedbackHarness:
                     f"Expected at least {spec.lane_count} channel lane shapes, found {unit_shapes}.",
                 )
             )
+        if isinstance(spec, HallBarLayoutSpec) and unit_shapes != 13:
+            findings.append(
+                _finding(
+                    "geometry.hall_bar_shape_count",
+                    child_cell_name,
+                    spec.layer_name,
+                    f"Expected 13 Hall bar shapes for 6 terminals, found {unit_shapes}.",
+                )
+            )
 
         _expect_bbox(findings, root.bbox(), layout.dbu, spec.root_width_um, spec.root_height_um, spec.root_cell, spec.layer_name)
         if isinstance(spec, ElectrodeLayoutSpec):
@@ -204,15 +213,26 @@ class FeedbackHarness:
                 spec.layer_name,
             )
         else:
-            _expect_bbox(
-                findings,
-                unit.bbox(),
-                layout.dbu,
-                spec.lane_length_um + spec.port_size_um * 2,
-                spec.active_height_um + spec.port_size_um - spec.channel_width_um,
-                child_cell_name,
-                spec.layer_name,
-            )
+            if isinstance(spec, MicroChannelLayoutSpec):
+                _expect_bbox(
+                    findings,
+                    unit.bbox(),
+                    layout.dbu,
+                    spec.lane_length_um + spec.port_size_um * 2,
+                    spec.active_height_um + spec.port_size_um - spec.channel_width_um,
+                    child_cell_name,
+                    spec.layer_name,
+                )
+            else:
+                _expect_bbox(
+                    findings,
+                    unit.bbox(),
+                    layout.dbu,
+                    spec.device_width_um,
+                    spec.device_height_um,
+                    child_cell_name,
+                    spec.layer_name,
+                )
         return ValidationReport(passed=not findings, findings=findings)
 
 
@@ -268,12 +288,33 @@ def _spec_dimensions(spec: LayoutSpec) -> dict[str, float]:
             "electrode_length_um": spec.electrode_length_um,
             "frame_width_um": spec.frame_width_um,
         }
+    if isinstance(spec, MicroChannelLayoutSpec):
+        return {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "channel_width_um": spec.channel_width_um,
+            "channel_pitch_um": spec.channel_pitch_um,
+            "lane_length_um": spec.lane_length_um,
+            "port_size_um": spec.port_size_um,
+            "frame_width_um": spec.frame_width_um,
+        }
     return {
         "root_width_um": spec.root_width_um,
         "root_height_um": spec.root_height_um,
+        "channel_length_um": spec.channel_length_um,
         "channel_width_um": spec.channel_width_um,
-        "channel_pitch_um": spec.channel_pitch_um,
-        "lane_length_um": spec.lane_length_um,
-        "port_size_um": spec.port_size_um,
+        "current_lead_length_um": spec.current_lead_length_um,
+        "voltage_lead_width_um": spec.voltage_lead_width_um,
+        "voltage_lead_length_um": spec.voltage_lead_length_um,
+        "voltage_probe_spacing_um": spec.voltage_probe_spacing_um,
+        "bonding_pad_size_um": spec.bonding_pad_size_um,
         "frame_width_um": spec.frame_width_um,
     }
+
+
+def _child_cell_name(spec: LayoutSpec) -> str:
+    if isinstance(spec, ElectrodeLayoutSpec):
+        return spec.unit_cell
+    if isinstance(spec, MicroChannelLayoutSpec):
+        return spec.channel_cell
+    return spec.hall_cell

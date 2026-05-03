@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .cad import CADHarness
 from .context import DesignContext
-from .semantic import ElectrodeLayoutSpec, LayoutSpec, MicroChannelLayoutSpec
+from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec
 
 
 class ToolActuationHarness:
@@ -30,6 +30,9 @@ class ToolActuationHarness:
         )
 
     def build(self, cad: CADHarness) -> None:
+        if isinstance(self.spec, HallBarLayoutSpec):
+            self._build_hall_bar(cad)
+            return
         if isinstance(self.spec, MicroChannelLayoutSpec):
             self._build_micro_channel(cad)
             return
@@ -108,11 +111,76 @@ class ToolActuationHarness:
         )
         cad.add_instance_um(spec.root_cell, spec.channel_cell, 0, 0)
 
+    def _build_hall_bar(self, cad: CADHarness) -> None:
+        spec = self.spec
+        assert isinstance(spec, HallBarLayoutSpec)
+        cad.create_cell(spec.root_cell)
+        cad.create_cell(spec.hall_cell)
+        cad.add_frame_um(spec.root_cell, spec.layer_name, spec.root_width_um, spec.root_height_um, spec.frame_width_um)
+
+        half_channel = spec.channel_length_um / 2
+        half_channel_width = spec.channel_width_um / 2
+        half_pad = spec.bonding_pad_size_um / 2
+        half_voltage = spec.voltage_lead_width_um / 2
+        half_spacing = spec.voltage_probe_spacing_um / 2
+
+        # Main Hall bar and current leads.
+        cad.add_box_um(spec.hall_cell, spec.layer_name, -half_channel, -half_channel_width, half_channel, half_channel_width)
+        cad.add_box_um(
+            spec.hall_cell,
+            spec.layer_name,
+            -half_channel - spec.current_lead_length_um,
+            -half_channel_width,
+            -half_channel,
+            half_channel_width,
+        )
+        cad.add_box_um(
+            spec.hall_cell,
+            spec.layer_name,
+            half_channel,
+            -half_channel_width,
+            half_channel + spec.current_lead_length_um,
+            half_channel_width,
+        )
+
+        # Current bonding pads.
+        left_pad_cx = -half_channel - spec.current_lead_length_um - half_pad
+        right_pad_cx = half_channel + spec.current_lead_length_um + half_pad
+        cad.add_box_um(spec.hall_cell, spec.layer_name, left_pad_cx - half_pad, -half_pad, left_pad_cx + half_pad, half_pad)
+        cad.add_box_um(spec.hall_cell, spec.layer_name, right_pad_cx - half_pad, -half_pad, right_pad_cx + half_pad, half_pad)
+
+        # Four voltage probes and pads.
+        for x in (-half_spacing, half_spacing):
+            for direction in (-1, 1):
+                y1 = direction * half_channel_width
+                y2 = direction * (half_channel_width + spec.voltage_lead_length_um)
+                cad.add_box_um(
+                    spec.hall_cell,
+                    spec.layer_name,
+                    x - half_voltage,
+                    min(y1, y2),
+                    x + half_voltage,
+                    max(y1, y2),
+                )
+                pad_cy = direction * (half_channel_width + spec.voltage_lead_length_um + half_pad)
+                cad.add_box_um(
+                    spec.hall_cell,
+                    spec.layer_name,
+                    x - half_pad,
+                    pad_cy - half_pad,
+                    x + half_pad,
+                    pad_cy + half_pad,
+                )
+
+        cad.add_instance_um(spec.root_cell, spec.hall_cell, 0, 0)
+
     def output_path(self, directory: str | Path) -> Path:
         return Path(directory) / f"{self.spec.root_cell}.gds"
 
     def equivalent_python_code(self, output_path: str | Path) -> str:
         spec = self.spec
+        if isinstance(spec, HallBarLayoutSpec):
+            return self._hall_bar_python_code(output_path)
         if isinstance(spec, MicroChannelLayoutSpec):
             return self._micro_channel_python_code(output_path)
         assert isinstance(spec, ElectrodeLayoutSpec)
@@ -140,6 +208,55 @@ half_electrode_w = {spec.electrode_width_um!r} / 2
 half_electrode_h = {spec.electrode_length_um!r} / 2
 unit.shapes(layer).insert(kdb.Box(dbu(-half_electrode_w), dbu(-half_electrode_h), dbu(half_electrode_w), dbu(half_electrode_h)))
 root.insert(kdb.CellInstArray(unit.cell_index(), kdb.Trans(0, 0)))
+layout.write(r"{Path(output_path)}")
+'''
+
+    def _hall_bar_python_code(self, output_path: str | Path) -> str:
+        spec = self.spec
+        assert isinstance(spec, HallBarLayoutSpec)
+        return f'''import klayout.db as kdb
+
+dbu_um = {spec.rules.dbu_um!r}
+layout = kdb.Layout()
+layout.dbu = dbu_um
+layer = layout.layer({spec.layer}, {spec.datatype})
+root = layout.create_cell("{spec.root_cell}")
+hall = layout.create_cell("{spec.hall_cell}")
+
+def dbu(value_um):
+    return int(round(value_um / dbu_um))
+
+def add_box(cell, x1, y1, x2, y2):
+    cell.shapes(layer).insert(kdb.Box(dbu(x1), dbu(y1), dbu(x2), dbu(y2)))
+
+half_channel = {spec.channel_length_um!r} / 2
+half_channel_width = {spec.channel_width_um!r} / 2
+half_pad = {spec.bonding_pad_size_um!r} / 2
+half_voltage = {spec.voltage_lead_width_um!r} / 2
+half_spacing = {spec.voltage_probe_spacing_um!r} / 2
+half_root_w = {spec.root_width_um!r} / 2
+half_root_h = {spec.root_height_um!r} / 2
+stroke = {spec.frame_width_um!r}
+add_box(root, -half_root_w, -half_root_h, half_root_w, -half_root_h + stroke)
+add_box(root, -half_root_w, half_root_h - stroke, half_root_w, half_root_h)
+add_box(root, -half_root_w, -half_root_h + stroke, -half_root_w + stroke, half_root_h - stroke)
+add_box(root, half_root_w - stroke, -half_root_h + stroke, half_root_w, half_root_h - stroke)
+
+add_box(hall, -half_channel, -half_channel_width, half_channel, half_channel_width)
+add_box(hall, -half_channel - {spec.current_lead_length_um!r}, -half_channel_width, -half_channel, half_channel_width)
+add_box(hall, half_channel, -half_channel_width, half_channel + {spec.current_lead_length_um!r}, half_channel_width)
+left_pad_cx = -half_channel - {spec.current_lead_length_um!r} - half_pad
+right_pad_cx = half_channel + {spec.current_lead_length_um!r} + half_pad
+add_box(hall, left_pad_cx - half_pad, -half_pad, left_pad_cx + half_pad, half_pad)
+add_box(hall, right_pad_cx - half_pad, -half_pad, right_pad_cx + half_pad, half_pad)
+for x in (-half_spacing, half_spacing):
+    for direction in (-1, 1):
+        y1 = direction * half_channel_width
+        y2 = direction * (half_channel_width + {spec.voltage_lead_length_um!r})
+        add_box(hall, x - half_voltage, min(y1, y2), x + half_voltage, max(y1, y2))
+        pad_cy = direction * (half_channel_width + {spec.voltage_lead_length_um!r} + half_pad)
+        add_box(hall, x - half_pad, pad_cy - half_pad, x + half_pad, pad_cy + half_pad)
+root.insert(kdb.CellInstArray(hall.cell_index(), kdb.Trans(0, 0)))
 layout.write(r"{Path(output_path)}")
 '''
 

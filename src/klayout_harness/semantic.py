@@ -58,11 +58,45 @@ class MicroChannelLayoutSpec:
         return self.lane_count * self.lane_length_um + (self.lane_count - 1) * self.channel_pitch_um
 
 
-LayoutSpec: TypeAlias = ElectrodeLayoutSpec | MicroChannelLayoutSpec
+@dataclass(frozen=True)
+class HallBarLayoutSpec:
+    root_cell: str = "HALL_BAR_ROOT"
+    root_width_um: float = 1400.0
+    root_height_um: float = 1200.0
+    hall_cell: str = "HALL_BAR_6T"
+    channel_length_um: float = 600.0
+    channel_width_um: float = 50.0
+    current_lead_length_um: float = 100.0
+    voltage_lead_width_um: float = 10.0
+    voltage_lead_length_um: float = 275.0
+    voltage_probe_spacing_um: float = 300.0
+    bonding_pad_size_um: float = 200.0
+    layer: int = 1
+    datatype: int = 0
+    layer_name: str = "MWRITER"
+    frame_width_um: float = 1.0
+    rules: FabricationRules = FabricationRules()
+
+    @property
+    def terminal_count(self) -> int:
+        return 6
+
+    @property
+    def device_width_um(self) -> float:
+        return self.channel_length_um + 2 * self.current_lead_length_um + 2 * self.bonding_pad_size_um
+
+    @property
+    def device_height_um(self) -> float:
+        return self.channel_width_um + 2 * self.voltage_lead_length_um + 2 * self.bonding_pad_size_um
+
+
+LayoutSpec: TypeAlias = ElectrodeLayoutSpec | MicroChannelLayoutSpec | HallBarLayoutSpec
 
 
 class SemanticHarness:
     def parse(self, prompt: str) -> LayoutSpec:
+        if _is_hall_bar_request(prompt):
+            return self._parse_hall_bar(prompt)
         if _is_micro_channel_request(prompt):
             return self._parse_micro_channel(prompt)
         return self._parse_electrode(prompt)
@@ -111,6 +145,22 @@ class SemanticHarness:
             datatype=int(layer_match.group(2)) if layer_match else 0,
         )
 
+    def _parse_hall_bar(self, prompt: str) -> HallBarLayoutSpec:
+        layer_match = re.search(r"\((\d+)\s*,\s*(\d+)\)", prompt)
+        values = [float(value) for value in re.findall(r"(\d+(?:\.\d+)?)\s*\\?mu\s*m", prompt, re.IGNORECASE)]
+        if len(values) < 3:
+            values = [float(value) for value in re.findall(r"(\d+(?:\.\d+)?)\s*u\s*m", prompt, re.IGNORECASE)]
+        channel_width = values[0] if len(values) >= 1 else 50.0
+        voltage_width = values[1] if len(values) >= 2 else 10.0
+        pad_size = values[2] if len(values) >= 3 else 200.0
+        return HallBarLayoutSpec(
+            channel_width_um=channel_width,
+            voltage_lead_width_um=voltage_width,
+            bonding_pad_size_um=pad_size,
+            layer=int(layer_match.group(1)) if layer_match else 1,
+            datatype=int(layer_match.group(2)) if layer_match else 0,
+        )
+
     def validate_spec(self, spec: LayoutSpec) -> list[str]:
         errors: list[str] = []
         resolution = spec.rules.minimum_resolution_um
@@ -130,6 +180,15 @@ class SemanticHarness:
                 errors.append("Serpentine active height exceeds root cell clearance.")
             if spec.lane_length_um + spec.port_size_um > spec.root_width_um:
                 errors.append("Serpentine lane length and ports exceed root cell width.")
+        if isinstance(spec, HallBarLayoutSpec):
+            if spec.terminal_count != 6:
+                errors.append("Standard Hall bar must have exactly 6 terminals.")
+            if spec.voltage_lead_width_um >= spec.channel_width_um:
+                errors.append("Voltage leads must be narrower than the main channel.")
+            if spec.device_width_um > spec.root_width_um - spec.bonding_pad_size_um / 2:
+                errors.append("Hall bar device width exceeds root cell clearance.")
+            if spec.device_height_um > spec.root_height_um - spec.bonding_pad_size_um / 2:
+                errors.append("Hall bar device height exceeds root cell clearance.")
         return errors
 
 
@@ -150,6 +209,11 @@ def _is_micro_channel_request(prompt: str) -> bool:
     return any(token in lowered for token in ["micro-channel", "micro channel", "microchannel", "미세 채널", "바이오 센서"])
 
 
+def _is_hall_bar_request(prompt: str) -> bool:
+    lowered = prompt.lower()
+    return any(token in lowered for token in ["hall bar", "quantum hall", "6-terminal", "6 terminal", "홀 효과", "홀 바"])
+
+
 def _physical_dimensions(spec: LayoutSpec) -> dict[str, float]:
     if isinstance(spec, ElectrodeLayoutSpec):
         return {
@@ -159,12 +223,25 @@ def _physical_dimensions(spec: LayoutSpec) -> dict[str, float]:
             "electrode_length_um": spec.electrode_length_um,
             "frame_width_um": spec.frame_width_um,
         }
+    if isinstance(spec, MicroChannelLayoutSpec):
+        return {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "channel_width_um": spec.channel_width_um,
+            "channel_pitch_um": spec.channel_pitch_um,
+            "lane_length_um": spec.lane_length_um,
+            "port_size_um": spec.port_size_um,
+            "frame_width_um": spec.frame_width_um,
+        }
     return {
         "root_width_um": spec.root_width_um,
         "root_height_um": spec.root_height_um,
+        "channel_length_um": spec.channel_length_um,
         "channel_width_um": spec.channel_width_um,
-        "channel_pitch_um": spec.channel_pitch_um,
-        "lane_length_um": spec.lane_length_um,
-        "port_size_um": spec.port_size_um,
+        "current_lead_length_um": spec.current_lead_length_um,
+        "voltage_lead_width_um": spec.voltage_lead_width_um,
+        "voltage_lead_length_um": spec.voltage_lead_length_um,
+        "voltage_probe_spacing_um": spec.voltage_probe_spacing_um,
+        "bonding_pad_size_um": spec.bonding_pad_size_um,
         "frame_width_um": spec.frame_width_um,
     }
