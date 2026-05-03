@@ -51,6 +51,10 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     assert "import klayout.db as kdb" in job["python_code"]
     assert "/viewer#job_id=" in job["viewer_url"]
     assert job["viewer_opened"] is False
+    assert job["agent_action"]["type"] == "open_internal_browser"
+    assert job["agent_action"]["target"] == "vibe_layout_viewer"
+    assert job["agent_action"]["url"] == job["viewer_url"]
+    assert "Do not open preview.png" in job["agent_action"]["instruction"]
     job_id = job["job_id"]
 
     status_response = client.get(f"/api/layouts/{job_id}", headers=headers)

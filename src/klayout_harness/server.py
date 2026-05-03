@@ -79,6 +79,7 @@ def create_app(
         response = job.to_dict()
         response["viewer_url"] = viewer_url
         response["viewer_opened"] = False
+        response["agent_action"] = _agent_action_for_viewer(viewer_url)
         should_open_viewer = request.open_viewer if request.open_viewer is not None else auto_open_viewer
         if should_open_viewer and job.status == "completed":
             response["viewer_opened"] = _open_viewer_url(viewer_url)["opened"]
@@ -160,6 +161,19 @@ def _open_viewer_for_job(base_url: str, job_id: str, token: str) -> dict:
 
 def _viewer_url_for_job(base_url: str, job_id: str, token: str) -> str:
     return f"{base_url.rstrip('/')}/viewer#job_id={quote(job_id)}&token={quote(token)}"
+
+
+def _agent_action_for_viewer(viewer_url: str) -> dict:
+    return {
+        "type": "open_internal_browser",
+        "target": "vibe_layout_viewer",
+        "url": viewer_url,
+        "instruction": (
+            "Open this URL inside the active agent browser surface, such as the Codex in-app browser "
+            "or Claude Code browser preview. Do not open preview.png, generated standalone HTML files, "
+            "or file:// artifacts as the primary result view."
+        ),
+    }
 
 
 def _open_viewer_url(url: str) -> dict:

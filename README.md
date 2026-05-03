@@ -110,5 +110,11 @@ Useful endpoints:
 - `GET /api/layouts/{job_id}/layout.gds`
 - `WS /ws/jobs/{job_id}`
 
+Successful `POST /api/layouts` responses include `viewer_url` and
+`agent_action`. Agents should open `agent_action.url` inside their active
+browser surface, such as the Codex in-app browser or Claude Code browser
+preview. The Viewer URL is the canonical review surface; generated PNG, GDS,
+and standalone HTML artifacts are secondary downloads.
+
 The server stores generated artifacts under `build/jobs/{job_id}/` and requires
 `Authorization: Bearer <token>` for API and WebSocket access.
