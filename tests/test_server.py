@@ -34,6 +34,8 @@ def test_server_serves_viewer_page(tmp_path: Path) -> None:
     assert "Open KLayout" in response.text
     assert "ctrlKey" in response.text
     assert "[Vibe_Layout]" in response.text
+    assert "open_viewer: false" in response.text
+    assert "job_id" in response.text
 
 
 def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
@@ -58,6 +60,48 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     assert preview_response.headers["content-type"] == "image/png"
     assert gds_response.status_code == 200
     assert len(gds_response.content) > 0
+
+
+def test_server_auto_opens_viewer_for_api_job(tmp_path: Path, monkeypatch) -> None:
+    opened: dict[str, str] = {}
+
+    def fake_open_viewer(base_url: str, job_id: str, token: str) -> dict:
+        opened["base_url"] = base_url
+        opened["job_id"] = job_id
+        opened["token"] = token
+        return {"opened": True, "url": f"{base_url}/viewer#job_id={job_id}&token={token}"}
+
+    monkeypatch.setattr("klayout_harness.server._open_viewer_for_job", fake_open_viewer)
+    client = TestClient(
+        create_app(
+            token="secret",
+            jobs_dir=tmp_path,
+            auto_open_viewer=True,
+            viewer_base_url="http://127.0.0.1:9999",
+        )
+    )
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post("/api/layouts", json={"prompt": PROMPT}, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert opened["base_url"] == "http://127.0.0.1:9999"
+    assert opened["job_id"] == response.json()["job_id"]
+    assert opened["token"] == "secret"
+
+
+def test_server_respects_open_viewer_false(tmp_path: Path, monkeypatch) -> None:
+    opened: list[str] = []
+    monkeypatch.setattr("klayout_harness.server._open_viewer_for_job", lambda *args: opened.append("opened"))
+    client = TestClient(create_app(token="secret", jobs_dir=tmp_path, auto_open_viewer=True))
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post("/api/layouts", json={"prompt": PROMPT, "open_viewer": False}, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert opened == []
 
 
 def test_server_fails_job_without_vibe_layout_command(tmp_path: Path) -> None:

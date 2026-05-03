@@ -6,6 +6,8 @@ import secrets
 from pathlib import Path
 import subprocess
 from typing import Annotated
+from urllib.parse import quote
+import webbrowser
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
@@ -19,6 +21,7 @@ from .jobs import LayoutJobRunner
 class LayoutRequest(BaseModel):
     prompt: str
     open_gui: bool = False
+    open_viewer: bool | None = None
 
 
 class ConnectionManager:
@@ -41,7 +44,12 @@ class ConnectionManager:
             await websocket.send_json(event)
 
 
-def create_app(token: str | None = None, jobs_dir: str | Path = "build/jobs") -> FastAPI:
+def create_app(
+    token: str | None = None,
+    jobs_dir: str | Path = "build/jobs",
+    auto_open_viewer: bool = False,
+    viewer_base_url: str = "http://127.0.0.1:8765",
+) -> FastAPI:
     auth_token = token or os.environ.get("VIBE_LAYOUT_TOKEN") or secrets.token_urlsafe(24)
     runner = LayoutJobRunner(jobs_dir)
     manager = ConnectionManager()
@@ -49,6 +57,8 @@ def create_app(token: str | None = None, jobs_dir: str | Path = "build/jobs") ->
     app.state.vibe_layout_token = auth_token
     app.state.vibe_layout_runner = runner
     app.state.vibe_layout_manager = manager
+    app.state.vibe_layout_auto_open_viewer = auto_open_viewer
+    app.state.vibe_layout_viewer_base_url = viewer_base_url.rstrip("/")
 
     def require_auth(authorization: Annotated[str | None, Header()] = None) -> None:
         if authorization != f"Bearer {auth_token}":
@@ -65,6 +75,9 @@ def create_app(token: str | None = None, jobs_dir: str | Path = "build/jobs") ->
     @app.post("/api/layouts", dependencies=[Depends(require_auth)])
     def create_layout(request: LayoutRequest) -> dict:
         job = runner.run(request.prompt)
+        should_open_viewer = request.open_viewer if request.open_viewer is not None else auto_open_viewer
+        if should_open_viewer and job.status == "completed":
+            _open_viewer_for_job(app.state.vibe_layout_viewer_base_url, job.job_id, auth_token)
         return job.to_dict()
 
     @app.get("/api/layouts/{job_id}", dependencies=[Depends(require_auth)])
@@ -135,6 +148,12 @@ def _open_gds_in_klayout(path: Path) -> dict:
         status_code=404,
         detail="KLayout executable not found. Set KLAYOUT_EXE or add klayout to PATH.",
     )
+
+
+def _open_viewer_for_job(base_url: str, job_id: str, token: str) -> dict:
+    url = f"{base_url}/viewer#job_id={quote(job_id)}&token={quote(token)}"
+    opened = webbrowser.open(url, new=2)
+    return {"opened": opened, "url": url}
 
 
 VIEWER_HTML = r"""<!doctype html>
@@ -451,6 +470,15 @@ VIEWER_HTML = r"""<!doctype html>
       }
     }
 
+    async function loadJob(jobId) {
+      setStatus(`Loading ${jobId}...`);
+      const response = await fetch(`/api/layouts/${jobId}`, { headers: authHeaders() });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${await response.text()}`);
+      }
+      await renderJob(await response.json());
+    }
+
     async function generate() {
       if (!/^\s*(\[Vibe_Layout\]|Vibe_Layout)(?:\s|[:,，-]|$)/i.test(promptInput.value)) {
         jobLog.textContent = "Prompt must begin with [Vibe_Layout].";
@@ -470,7 +498,7 @@ VIEWER_HTML = r"""<!doctype html>
         const response = await fetch("/api/layouts", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({ prompt: promptInput.value, open_gui: false }),
+          body: JSON.stringify({ prompt: promptInput.value, open_gui: false, open_viewer: false }),
         });
         if (!response.ok) {
           throw new Error(`${response.status} ${await response.text()}`);
@@ -541,6 +569,16 @@ VIEWER_HTML = r"""<!doctype html>
     downloadGds.addEventListener("click", () => downloadArtifact("layout.gds", "layout.gds"));
     downloadPng.addEventListener("click", () => downloadArtifact("preview.png", "preview.png"));
     applyZoom();
+    const startupParams = new URLSearchParams(window.location.hash.slice(1));
+    if (startupParams.has("token")) {
+      tokenInput.value = startupParams.get("token");
+    }
+    if (startupParams.has("job_id")) {
+      loadJob(startupParams.get("job_id")).catch((error) => {
+        jobLog.textContent = String(error);
+        setStatus("Failed to load linked job", true);
+      });
+    }
   </script>
 </body>
 </html>"""
@@ -557,7 +595,17 @@ def main() -> int:
     token = args.token or secrets.token_urlsafe(24)
     print(f"vibe_layout_server=http://{args.host}:{args.port}")
     print(f"vibe_layout_token={token}")
-    uvicorn.run(create_app(token=token, jobs_dir=args.jobs_dir), host=args.host, port=args.port)
+    viewer_base_url = f"http://{args.host}:{args.port}"
+    uvicorn.run(
+        create_app(
+            token=token,
+            jobs_dir=args.jobs_dir,
+            auto_open_viewer=True,
+            viewer_base_url=viewer_base_url,
+        ),
+        host=args.host,
+        port=args.port,
+    )
     return 0
 
 
