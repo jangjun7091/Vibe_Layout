@@ -7,8 +7,8 @@ def render_gds_preview(
     gds_path: str | Path,
     png_path: str | Path,
     root_cell_name: str,
-    layer: int,
-    datatype: int,
+    layer: int | None = None,
+    datatype: int | None = None,
     scale_px_per_um: float = 1.1,
     pad_um: float = 40.0,
 ) -> Path:
@@ -43,19 +43,28 @@ def render_gds_preview(
     x2, y2 = to_px(bbox.right, bbox.top)
     draw.rectangle([x1, y2, x2, y1], outline=(30, 30, 30), width=2)
 
-    layer_index = layout.layer(layer, datatype)
     colors = [(20, 120, 210), (30, 30, 30), (45, 160, 90), (180, 80, 30)]
-    for cell_index, cell in enumerate(layout.each_cell()):
-        color = colors[cell_index % len(colors)]
-        if cell.name == root_cell_name:
-            color = (30, 30, 30)
-        for shape in cell.shapes(layer_index).each():
-            if not shape.is_box():
-                continue
-            box = shape.box
-            bx1, by1 = to_px(box.left, box.bottom)
-            bx2, by2 = to_px(box.right, box.top)
-            draw.rectangle([bx1, by2, bx2, by1], fill=color, outline=color)
+    layer_indexes = [layout.layer(layer, datatype)] if layer is not None and datatype is not None else list(layout.layer_indexes())
+    for layer_offset, layer_index in enumerate(layer_indexes):
+        layer_info = layout.get_info(layer_index)
+        layer_color = colors[layer_offset % len(colors)]
+        if layer_info.layer == 2:
+            layer_color = (45, 160, 90)
+        for cell_index, cell in enumerate(layout.each_cell()):
+            color = layer_color if cell.name != root_cell_name else (30, 30, 30)
+            if cell.name != root_cell_name and cell_index:
+                color = layer_color
+            for shape in cell.shapes(layer_index).each():
+                if not shape.is_box():
+                    continue
+                box = shape.box
+                bx1, by1 = to_px(box.left, box.bottom)
+                bx2, by2 = to_px(box.right, box.top)
+                draw.rectangle([bx1, by2, bx2, by1], fill=color, outline=color)
+
+    if layer is not None and datatype is not None:
+        # Keep backward-compatible single-layer previews visually identical for existing designs.
+        pass
 
     bar_um = 100
     bar_x = 60

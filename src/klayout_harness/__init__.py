@@ -6,7 +6,14 @@ from .cad import CADHarness, KLayoutBackend, RecordingBackend
 from .context import DesignContext, LayerSpec
 from .design_request import ElectrodeRequest, build_electrode_layout, parse_electrode_request
 from .feedback import FeedbackHarness, ValidationFinding, ValidationReport
-from .semantic import ElectrodeLayoutSpec, FabricationRules, HallBarLayoutSpec, MicroChannelLayoutSpec, SemanticHarness
+from .semantic import (
+    ElectrodeLayoutSpec,
+    FabricationRules,
+    HallBarLayoutSpec,
+    MicroChannelLayoutSpec,
+    NanoGapArrayLayoutSpec,
+    SemanticHarness,
+)
 
 __all__ = [
     "CADHarness",
@@ -21,6 +28,7 @@ __all__ = [
     "KLayoutBackend",
     "LayerSpec",
     "MicroChannelLayoutSpec",
+    "NanoGapArrayLayoutSpec",
     "RecordingBackend",
     "SemanticHarness",
     "ToolActuationHarness",

@@ -90,7 +90,58 @@ class HallBarLayoutSpec:
         return self.channel_width_um + 2 * self.voltage_lead_length_um + 2 * self.bonding_pad_size_um
 
 
-LayoutSpec: TypeAlias = ElectrodeLayoutSpec | MicroChannelLayoutSpec | HallBarLayoutSpec
+@dataclass(frozen=True)
+class NanoGapArrayLayoutSpec:
+    root_cell: str = "NANOGAP_ARRAY_ROOT"
+    root_width_um: float = 1900.0
+    root_height_um: float = 360.0
+    array_cell: str = "NANOGAP_ARRAY"
+    device_count: int = 8
+    gap_start_um: float = 0.6
+    gap_stop_um: float = 2.0
+    gap_step_um: float = 0.2
+    device_spacing_um: float = 100.0
+    electrode_length_um: float = 60.0
+    electrode_width_um: float = 30.0
+    marker_box_size_um: float = 8.0
+    marker_box_pitch_um: float = 12.0
+    marker_offset_y_um: float = -70.0
+    layer: int = 1
+    datatype: int = 0
+    layer_name: str = "MWRITER"
+    marker_layer: int = 2
+    marker_datatype: int = 0
+    marker_layer_name: str = "IDENT"
+    frame_width_um: float = 1.0
+    rules: FabricationRules = FabricationRules()
+
+    @property
+    def gaps_um(self) -> tuple[float, ...]:
+        return tuple(round(self.gap_start_um + index * self.gap_step_um, 10) for index in range(self.device_count))
+
+    @property
+    def max_device_width_um(self) -> float:
+        return 2 * self.electrode_length_um + self.gap_stop_um
+
+    @property
+    def array_width_um(self) -> float:
+        return self.device_count * self.max_device_width_um + (self.device_count - 1) * self.device_spacing_um
+
+    @property
+    def active_width_um(self) -> float:
+        return (
+            (self.device_count - 1) * (self.max_device_width_um + self.device_spacing_um)
+            + 2 * self.electrode_length_um
+            + self.gap_start_um / 2
+            + self.gap_stop_um / 2
+        )
+
+    @property
+    def array_height_um(self) -> float:
+        return self.electrode_width_um / 2 + abs(self.marker_offset_y_um) + self.marker_box_size_um / 2
+
+
+LayoutSpec: TypeAlias = ElectrodeLayoutSpec | MicroChannelLayoutSpec | HallBarLayoutSpec | NanoGapArrayLayoutSpec
 
 
 VIBE_COMMAND = "[Vibe_Layout]"
@@ -102,6 +153,8 @@ class SemanticHarness:
         design_prompt = _extract_design_prompt(prompt)
         if _is_hall_bar_request(design_prompt):
             return self._parse_hall_bar(design_prompt)
+        if _is_nanogap_request(design_prompt):
+            return self._parse_nanogap_array(design_prompt)
         if _is_micro_channel_request(design_prompt):
             return self._parse_micro_channel(design_prompt)
         return self._parse_electrode(design_prompt)
@@ -166,6 +219,31 @@ class SemanticHarness:
             datatype=int(layer_match.group(2)) if layer_match else 0,
         )
 
+    def _parse_nanogap_array(self, prompt: str) -> NanoGapArrayLayoutSpec:
+        layer_tuples = [(int(layer), int(datatype)) for layer, datatype in re.findall(r"\((\d+)\s*,\s*(\d+)\)", prompt)]
+        values = [float(value) for value in re.findall(r"(\d+(?:\.\d+)?)\s*\\?mu\s*m", prompt, re.IGNORECASE)]
+        if len(values) < 4:
+            values = [float(value) for value in re.findall(r"(\d+(?:\.\d+)?)\s*u\s*m", prompt, re.IGNORECASE)]
+        gap_start = values[0] if len(values) >= 1 else 0.6
+        gap_stop = values[1] if len(values) >= 2 else 2.0
+        gap_step = values[2] if len(values) >= 3 else 0.2
+        device_spacing = values[3] if len(values) >= 4 else 100.0
+        count_match = re.search(r"총\s*(\d+)|(\d+)\s*개", prompt)
+        device_count = int(count_match.group(1) or count_match.group(2)) if count_match else 8
+        electrode_layer = layer_tuples[0] if len(layer_tuples) >= 2 else (1, 0)
+        marker_layer = layer_tuples[-1] if layer_tuples else (2, 0)
+        return NanoGapArrayLayoutSpec(
+            device_count=device_count,
+            gap_start_um=gap_start,
+            gap_stop_um=gap_stop,
+            gap_step_um=gap_step,
+            device_spacing_um=device_spacing,
+            layer=electrode_layer[0],
+            datatype=electrode_layer[1],
+            marker_layer=marker_layer[0],
+            marker_datatype=marker_layer[1],
+        )
+
     def validate_spec(self, spec: LayoutSpec) -> list[str]:
         errors: list[str] = []
         resolution = spec.rules.minimum_resolution_um
@@ -194,6 +272,12 @@ class SemanticHarness:
                 errors.append("Hall bar device width exceeds root cell clearance.")
             if spec.device_height_um > spec.root_height_um - spec.bonding_pad_size_um / 2:
                 errors.append("Hall bar device height exceeds root cell clearance.")
+        if isinstance(spec, NanoGapArrayLayoutSpec):
+            expected_stop = spec.gap_start_um + (spec.device_count - 1) * spec.gap_step_um
+            if not math.isclose(expected_stop, spec.gap_stop_um, rel_tol=0, abs_tol=1e-9):
+                errors.append("Nano-gap count, start, stop, and step are inconsistent.")
+            if spec.array_width_um > spec.root_width_um - 2 * spec.frame_width_um:
+                errors.append("Nano-gap array width exceeds root cell clearance.")
         return errors
 
 
@@ -229,6 +313,11 @@ def _is_hall_bar_request(prompt: str) -> bool:
     return any(token in lowered for token in ["hall bar", "quantum hall", "6-terminal", "6 terminal", "홀 효과", "홀 바"])
 
 
+def _is_nanogap_request(prompt: str) -> bool:
+    lowered = prompt.lower()
+    return any(token in lowered for token in ["nano-gap", "nanogap", "nano gap", "나노 갭", "터널링", "tunneling"])
+
+
 def _physical_dimensions(spec: LayoutSpec) -> dict[str, float]:
     if isinstance(spec, ElectrodeLayoutSpec):
         return {
@@ -246,6 +335,19 @@ def _physical_dimensions(spec: LayoutSpec) -> dict[str, float]:
             "channel_pitch_um": spec.channel_pitch_um,
             "lane_length_um": spec.lane_length_um,
             "port_size_um": spec.port_size_um,
+            "frame_width_um": spec.frame_width_um,
+        }
+    if isinstance(spec, NanoGapArrayLayoutSpec):
+        return {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "gap_start_um": spec.gap_start_um,
+            "gap_stop_um": spec.gap_stop_um,
+            "device_spacing_um": spec.device_spacing_um,
+            "electrode_length_um": spec.electrode_length_um,
+            "electrode_width_um": spec.electrode_width_um,
+            "marker_box_size_um": spec.marker_box_size_um,
+            "marker_box_pitch_um": spec.marker_box_pitch_um,
             "frame_width_um": spec.frame_width_um,
         }
     return {

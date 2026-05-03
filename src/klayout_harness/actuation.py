@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .cad import CADHarness
 from .context import DesignContext
-from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec
+from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, NanoGapArrayLayoutSpec
 
 
 class ToolActuationHarness:
@@ -19,7 +19,8 @@ class ToolActuationHarness:
                     self.spec.layer_name: {
                         "layer": self.spec.layer,
                         "datatype": self.spec.datatype,
-                    }
+                    },
+                    **_extra_layers(self.spec),
                 },
                 "parameters": {},
                 "rules": {
@@ -32,6 +33,9 @@ class ToolActuationHarness:
     def build(self, cad: CADHarness) -> None:
         if isinstance(self.spec, HallBarLayoutSpec):
             self._build_hall_bar(cad)
+            return
+        if isinstance(self.spec, NanoGapArrayLayoutSpec):
+            self._build_nanogap_array(cad)
             return
         if isinstance(self.spec, MicroChannelLayoutSpec):
             self._build_micro_channel(cad)
@@ -174,6 +178,41 @@ class ToolActuationHarness:
 
         cad.add_instance_um(spec.root_cell, spec.hall_cell, 0, 0)
 
+    def _build_nanogap_array(self, cad: CADHarness) -> None:
+        spec = self.spec
+        assert isinstance(spec, NanoGapArrayLayoutSpec)
+        cad.create_cell(spec.root_cell)
+        cad.create_cell(spec.array_cell)
+        cad.add_frame_um(spec.root_cell, spec.layer_name, spec.root_width_um, spec.root_height_um, spec.frame_width_um)
+
+        start_x = -spec.array_width_um / 2 + spec.max_device_width_um / 2
+        half_electrode_w = spec.electrode_width_um / 2
+        half_marker = spec.marker_box_size_um / 2
+        for index, gap_um in enumerate(spec.gaps_um):
+            center_x = start_x + index * (spec.max_device_width_um + spec.device_spacing_um)
+            half_gap = gap_um / 2
+            left_x2 = center_x - half_gap
+            left_x1 = left_x2 - spec.electrode_length_um
+            right_x1 = center_x + half_gap
+            right_x2 = right_x1 + spec.electrode_length_um
+            cad.add_box_um(spec.array_cell, spec.layer_name, left_x1, -half_electrode_w, left_x2, half_electrode_w)
+            cad.add_box_um(spec.array_cell, spec.layer_name, right_x1, -half_electrode_w, right_x2, half_electrode_w)
+
+            marker_y = spec.marker_offset_y_um
+            marker_start_x = center_x - ((index + 1) - 1) * spec.marker_box_pitch_um / 2
+            for marker_index in range(index + 1):
+                marker_x = marker_start_x + marker_index * spec.marker_box_pitch_um
+                cad.add_box_um(
+                    spec.array_cell,
+                    spec.marker_layer_name,
+                    marker_x - half_marker,
+                    marker_y - half_marker,
+                    marker_x + half_marker,
+                    marker_y + half_marker,
+                )
+
+        cad.add_instance_um(spec.root_cell, spec.array_cell, 0, 0)
+
     def output_path(self, directory: str | Path) -> Path:
         return Path(directory) / f"{self.spec.root_cell}.gds"
 
@@ -181,6 +220,8 @@ class ToolActuationHarness:
         spec = self.spec
         if isinstance(spec, HallBarLayoutSpec):
             return self._hall_bar_python_code(output_path)
+        if isinstance(spec, NanoGapArrayLayoutSpec):
+            return self._nanogap_array_python_code(output_path)
         if isinstance(spec, MicroChannelLayoutSpec):
             return self._micro_channel_python_code(output_path)
         assert isinstance(spec, ElectrodeLayoutSpec)
@@ -302,3 +343,60 @@ add_box(channel, half_lane, lane_ys[-1] - {spec.port_size_um!r} / 2, half_lane +
 root.insert(kdb.CellInstArray(channel.cell_index(), kdb.Trans(0, 0)))
 layout.write(r"{Path(output_path)}")
 '''
+
+    def _nanogap_array_python_code(self, output_path: str | Path) -> str:
+        spec = self.spec
+        assert isinstance(spec, NanoGapArrayLayoutSpec)
+        return f'''import klayout.db as kdb
+
+dbu_um = {spec.rules.dbu_um!r}
+layout = kdb.Layout()
+layout.dbu = dbu_um
+electrode_layer = layout.layer({spec.layer}, {spec.datatype})
+marker_layer = layout.layer({spec.marker_layer}, {spec.marker_datatype})
+root = layout.create_cell("{spec.root_cell}")
+array = layout.create_cell("{spec.array_cell}")
+
+def dbu(value_um):
+    return int(round(value_um / dbu_um))
+
+def add_box(cell, layer, x1, y1, x2, y2):
+    cell.shapes(layer).insert(kdb.Box(dbu(x1), dbu(y1), dbu(x2), dbu(y2)))
+
+half_root_w = {spec.root_width_um!r} / 2
+half_root_h = {spec.root_height_um!r} / 2
+stroke = {spec.frame_width_um!r}
+add_box(root, electrode_layer, -half_root_w, -half_root_h, half_root_w, -half_root_h + stroke)
+add_box(root, electrode_layer, -half_root_w, half_root_h - stroke, half_root_w, half_root_h)
+add_box(root, electrode_layer, -half_root_w, -half_root_h + stroke, -half_root_w + stroke, half_root_h - stroke)
+add_box(root, electrode_layer, half_root_w - stroke, -half_root_h + stroke, half_root_w, half_root_h - stroke)
+
+gaps_um = {list(spec.gaps_um)!r}
+max_device_width_um = {spec.max_device_width_um!r}
+array_width_um = {spec.array_width_um!r}
+start_x = -array_width_um / 2 + max_device_width_um / 2
+half_electrode_w = {spec.electrode_width_um!r} / 2
+half_marker = {spec.marker_box_size_um!r} / 2
+for index, gap_um in enumerate(gaps_um):
+    center_x = start_x + index * (max_device_width_um + {spec.device_spacing_um!r})
+    half_gap = gap_um / 2
+    add_box(array, electrode_layer, center_x - half_gap - {spec.electrode_length_um!r}, -half_electrode_w, center_x - half_gap, half_electrode_w)
+    add_box(array, electrode_layer, center_x + half_gap, -half_electrode_w, center_x + half_gap + {spec.electrode_length_um!r}, half_electrode_w)
+    marker_start_x = center_x - ((index + 1) - 1) * {spec.marker_box_pitch_um!r} / 2
+    for marker_index in range(index + 1):
+        marker_x = marker_start_x + marker_index * {spec.marker_box_pitch_um!r}
+        add_box(array, marker_layer, marker_x - half_marker, {spec.marker_offset_y_um!r} - half_marker, marker_x + half_marker, {spec.marker_offset_y_um!r} + half_marker)
+root.insert(kdb.CellInstArray(array.cell_index(), kdb.Trans(0, 0)))
+layout.write(r"{Path(output_path)}")
+'''
+
+
+def _extra_layers(spec: LayoutSpec) -> dict:
+    if isinstance(spec, NanoGapArrayLayoutSpec):
+        return {
+            spec.marker_layer_name: {
+                "layer": spec.marker_layer,
+                "datatype": spec.marker_datatype,
+            }
+        }
+    return {}

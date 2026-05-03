@@ -86,7 +86,15 @@ class LayoutJobRunner:
             job.python_code = actuation.equivalent_python_code(gds_path)
             emit("gds_written", gds_path=job.gds_path)
 
-            preview_path = render_gds_preview(gds_path, job_dir / "preview.png", spec.root_cell, spec.layer, spec.datatype).resolve()
+            preview_layer = None if hasattr(spec, "marker_layer") else spec.layer
+            preview_datatype = None if hasattr(spec, "marker_datatype") else spec.datatype
+            preview_path = render_gds_preview(
+                gds_path,
+                job_dir / "preview.png",
+                spec.root_cell,
+                preview_layer,
+                preview_datatype,
+            ).resolve()
             job.preview_path = str(preview_path)
             emit("preview_rendered", preview_path=job.preview_path)
 

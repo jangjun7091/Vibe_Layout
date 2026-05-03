@@ -5,7 +5,14 @@ from pathlib import Path
 
 from .cad import RecordingBackend
 from .context import DesignContext
-from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, maps_exactly_to_dbu
+from .semantic import (
+    ElectrodeLayoutSpec,
+    HallBarLayoutSpec,
+    LayoutSpec,
+    MicroChannelLayoutSpec,
+    NanoGapArrayLayoutSpec,
+    maps_exactly_to_dbu,
+)
 
 
 @dataclass(frozen=True)
@@ -119,6 +126,26 @@ class FeedbackHarness:
                         f"{name}={value:g}um does not map cleanly to DBU {spec.rules.dbu_um:g}um.",
                     )
                 )
+        if isinstance(spec, NanoGapArrayLayoutSpec):
+            expected_stop = spec.gap_start_um + (spec.device_count - 1) * spec.gap_step_um
+            if not maps_exactly_to_dbu(expected_stop, spec.rules.dbu_um) or abs(expected_stop - spec.gap_stop_um) > spec.rules.dbu_um:
+                findings.append(
+                    _finding(
+                        "nanogap.sweep",
+                        None,
+                        spec.layer_name,
+                        "Nano-gap count, start, stop, and step are inconsistent.",
+                    )
+                )
+            if spec.array_width_um > spec.root_width_um - 2 * spec.frame_width_um:
+                findings.append(
+                    _finding(
+                        "geometry.array_clearance",
+                        spec.root_cell,
+                        spec.layer_name,
+                        "Nano-gap array width exceeds root cell clearance.",
+                    )
+                )
         return ValidationReport(passed=not findings, findings=findings)
 
     def validate_gds_electrode(self, path: str | Path, spec: ElectrodeLayoutSpec) -> ValidationReport:
@@ -200,6 +227,29 @@ class FeedbackHarness:
                     f"Expected 13 Hall bar shapes for 6 terminals, found {unit_shapes}.",
                 )
             )
+        if isinstance(spec, NanoGapArrayLayoutSpec):
+            marker_layer_index = layout.layer(spec.marker_layer, spec.marker_datatype)
+            electrode_shapes = unit.shapes(layer_index).size()
+            marker_shapes = unit.shapes(marker_layer_index).size()
+            expected_marker_shapes = sum(range(1, spec.device_count + 1))
+            if electrode_shapes != spec.device_count * 2:
+                findings.append(
+                    _finding(
+                        "geometry.nanogap_electrode_count",
+                        child_cell_name,
+                        spec.layer_name,
+                        f"Expected {spec.device_count * 2} nano-gap electrode shapes, found {electrode_shapes}.",
+                    )
+                )
+            if marker_shapes != expected_marker_shapes:
+                findings.append(
+                    _finding(
+                        "geometry.nanogap_marker_count",
+                        child_cell_name,
+                        spec.marker_layer_name,
+                        f"Expected {expected_marker_shapes} identifier marker boxes, found {marker_shapes}.",
+                    )
+                )
 
         _expect_bbox(findings, root.bbox(), layout.dbu, spec.root_width_um, spec.root_height_um, spec.root_cell, spec.layer_name)
         if isinstance(spec, ElectrodeLayoutSpec):
@@ -223,13 +273,23 @@ class FeedbackHarness:
                     child_cell_name,
                     spec.layer_name,
                 )
-            else:
+            elif isinstance(spec, HallBarLayoutSpec):
                 _expect_bbox(
                     findings,
                     unit.bbox(),
                     layout.dbu,
                     spec.device_width_um,
                     spec.device_height_um,
+                    child_cell_name,
+                    spec.layer_name,
+                )
+            else:
+                _expect_bbox(
+                    findings,
+                    unit.bbox(),
+                    layout.dbu,
+                    spec.active_width_um,
+                    spec.array_height_um,
                     child_cell_name,
                     spec.layer_name,
                 )
@@ -298,6 +358,19 @@ def _spec_dimensions(spec: LayoutSpec) -> dict[str, float]:
             "port_size_um": spec.port_size_um,
             "frame_width_um": spec.frame_width_um,
         }
+    if isinstance(spec, NanoGapArrayLayoutSpec):
+        return {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "gap_start_um": spec.gap_start_um,
+            "gap_stop_um": spec.gap_stop_um,
+            "device_spacing_um": spec.device_spacing_um,
+            "electrode_length_um": spec.electrode_length_um,
+            "electrode_width_um": spec.electrode_width_um,
+            "marker_box_size_um": spec.marker_box_size_um,
+            "marker_box_pitch_um": spec.marker_box_pitch_um,
+            "frame_width_um": spec.frame_width_um,
+        }
     return {
         "root_width_um": spec.root_width_um,
         "root_height_um": spec.root_height_um,
@@ -317,4 +390,6 @@ def _child_cell_name(spec: LayoutSpec) -> str:
         return spec.unit_cell
     if isinstance(spec, MicroChannelLayoutSpec):
         return spec.channel_cell
+    if isinstance(spec, NanoGapArrayLayoutSpec):
+        return spec.array_cell
     return spec.hall_cell

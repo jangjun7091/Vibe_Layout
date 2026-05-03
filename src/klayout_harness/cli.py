@@ -9,7 +9,14 @@ import subprocess
 from .cad import CADHarness
 from .actuation import ToolActuationHarness
 from .feedback import FeedbackHarness, ValidationReport
-from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, SemanticHarness
+from .semantic import (
+    ElectrodeLayoutSpec,
+    HallBarLayoutSpec,
+    LayoutSpec,
+    MicroChannelLayoutSpec,
+    NanoGapArrayLayoutSpec,
+    SemanticHarness,
+)
 
 
 def main() -> int:
@@ -91,6 +98,22 @@ def _engineering_analysis(spec: LayoutSpec) -> str:
                 f"- Bonding pads: 6 pads, {spec.bonding_pad_size_um:g}um x {spec.bonding_pad_size_um:g}um",
                 f"- Voltage probe spacing: {spec.voltage_probe_spacing_um:g}um",
                 f"- Hierarchy: {spec.root_cell} contains one {spec.hall_cell} instance at (0um, 0um)",
+            ]
+            + common[2:]
+        )
+    if isinstance(spec, NanoGapArrayLayoutSpec):
+        return "\n".join(
+            common[:2]
+            + [
+                f"- Array cell: {spec.array_cell}",
+                f"- Structure: {spec.device_count} horizontal nano-gap devices",
+                f"- Gap sweep: {spec.gap_start_um:g}um to {spec.gap_stop_um:g}um in {spec.gap_step_um:g}um steps",
+                f"- Gaps: {', '.join(f'{gap:g}um' for gap in spec.gaps_um)}",
+                f"- Electrode geometry: two {spec.electrode_length_um:g}um x {spec.electrode_width_um:g}um electrodes per device",
+                f"- Device spacing: {spec.device_spacing_um:g}um edge clearance minimum",
+                f"- Identifier layer: {spec.marker_layer_name} = ({spec.marker_layer}, {spec.marker_datatype})",
+                f"- Identifier pattern: 1 to {spec.device_count} marker boxes beside each device",
+                f"- Hierarchy: {spec.root_cell} contains one {spec.array_cell} instance at (0um, 0um)",
             ]
             + common[2:]
         )
