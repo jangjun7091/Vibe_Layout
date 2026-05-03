@@ -12,6 +12,7 @@ from .semantic import (
     HallBarLayoutSpec,
     MicroChannelLayoutSpec,
     NanoGapArrayLayoutSpec,
+    SRRFeedlineLayoutSpec,
     SemanticHarness,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "MicroChannelLayoutSpec",
     "NanoGapArrayLayoutSpec",
     "RecordingBackend",
+    "SRRFeedlineLayoutSpec",
     "SemanticHarness",
     "ToolActuationHarness",
     "ValidationFinding",

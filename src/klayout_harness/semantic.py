@@ -141,7 +141,47 @@ class NanoGapArrayLayoutSpec:
         return self.electrode_width_um / 2 + abs(self.marker_offset_y_um) + self.marker_box_size_um / 2
 
 
-LayoutSpec: TypeAlias = ElectrodeLayoutSpec | MicroChannelLayoutSpec | HallBarLayoutSpec | NanoGapArrayLayoutSpec
+@dataclass(frozen=True)
+class SRRFeedlineLayoutSpec:
+    root_cell: str = "SRR_FEEDLINE_ROOT"
+    root_width_um: float = 9000.0
+    root_height_um: float = 9500.0
+    srr_cell: str = "SRR_FEEDLINE"
+    srr_outer_size_um: float = 4500.0
+    srr_inner_size_um: float = 1500.0
+    capacitive_gap_um: float = 200.0
+    srr_feedline_gap_um: float = 200.0
+    feedline_length_um: float = 8000.0
+    feedline_width_um: float = 100.0
+    feedline_ground_gap_um: float = 400.0
+    ground_width_um: float = 8000.0
+    ground_height_um: float = 3000.0
+    layer: int = 1
+    datatype: int = 0
+    layer_name: str = "MWRITER"
+    frame_width_um: float = 1.0
+    rules: FabricationRules = FabricationRules()
+
+    @property
+    def ring_width_um(self) -> float:
+        return (self.srr_outer_size_um - self.srr_inner_size_um) / 2
+
+    @property
+    def device_width_um(self) -> float:
+        return max(self.srr_outer_size_um, self.feedline_length_um, self.ground_width_um)
+
+    @property
+    def device_height_um(self) -> float:
+        return self.srr_outer_size_um + self.srr_feedline_gap_um + self.feedline_width_um + self.feedline_ground_gap_um + self.ground_height_um
+
+    @property
+    def vertical_offset_um(self) -> float:
+        return self.device_height_um / 2 - self.srr_outer_size_um / 2
+
+
+LayoutSpec: TypeAlias = (
+    ElectrodeLayoutSpec | MicroChannelLayoutSpec | HallBarLayoutSpec | NanoGapArrayLayoutSpec | SRRFeedlineLayoutSpec
+)
 
 
 VIBE_COMMAND = "[Vibe_Layout]"
@@ -151,6 +191,8 @@ _COMMAND_PATTERN = re.compile(r"^\s*(?:\[Vibe_Layout\]|Vibe_Layout)\s*[:,，-]?\
 class SemanticHarness:
     def parse(self, prompt: str) -> LayoutSpec:
         design_prompt = _extract_design_prompt(prompt)
+        if _is_srr_feedline_request(design_prompt):
+            return self._parse_srr_feedline(design_prompt)
         if _is_hall_bar_request(design_prompt):
             return self._parse_hall_bar(design_prompt)
         if _is_nanogap_request(design_prompt):
@@ -244,6 +286,25 @@ class SemanticHarness:
             marker_datatype=marker_layer[1],
         )
 
+    def _parse_srr_feedline(self, prompt: str) -> SRRFeedlineLayoutSpec:
+        layer_match = re.search(r"\((\d+)\s*,\s*(\d+)\)", prompt)
+        values = [float(value) for value in re.findall(r"(\d+(?:\.\d+)?)\s*\\?mu\s*m", prompt, re.IGNORECASE)]
+        if len(values) < 9:
+            values = [float(value) for value in re.findall(r"(\d+(?:\.\d+)?)\s*u\s*m", prompt, re.IGNORECASE)]
+        return SRRFeedlineLayoutSpec(
+            srr_outer_size_um=values[0] if len(values) >= 1 else 4500.0,
+            srr_inner_size_um=values[1] if len(values) >= 2 else 1500.0,
+            capacitive_gap_um=values[2] if len(values) >= 3 else 200.0,
+            srr_feedline_gap_um=values[3] if len(values) >= 4 else 200.0,
+            feedline_length_um=values[4] if len(values) >= 5 else 8000.0,
+            feedline_width_um=values[5] if len(values) >= 6 else 100.0,
+            feedline_ground_gap_um=values[6] if len(values) >= 7 else 400.0,
+            ground_width_um=values[7] if len(values) >= 8 else 8000.0,
+            ground_height_um=values[8] if len(values) >= 9 else 3000.0,
+            layer=int(layer_match.group(1)) if layer_match else 1,
+            datatype=int(layer_match.group(2)) if layer_match else 0,
+        )
+
     def validate_spec(self, spec: LayoutSpec) -> list[str]:
         errors: list[str] = []
         resolution = spec.rules.minimum_resolution_um
@@ -278,6 +339,15 @@ class SemanticHarness:
                 errors.append("Nano-gap count, start, stop, and step are inconsistent.")
             if spec.array_width_um > spec.root_width_um - 2 * spec.frame_width_um:
                 errors.append("Nano-gap array width exceeds root cell clearance.")
+        if isinstance(spec, SRRFeedlineLayoutSpec):
+            if spec.srr_inner_size_um >= spec.srr_outer_size_um:
+                errors.append("SRR inner square must be smaller than outer square.")
+            if spec.capacitive_gap_um >= spec.srr_outer_size_um - spec.ring_width_um:
+                errors.append("SRR capacitive gap is too large for the top conductor.")
+            if spec.device_width_um > spec.root_width_um - 2 * spec.frame_width_um:
+                errors.append("SRR device width exceeds root cell clearance.")
+            if spec.device_height_um > spec.root_height_um - 2 * spec.frame_width_um:
+                errors.append("SRR device height exceeds root cell clearance.")
         return errors
 
 
@@ -318,6 +388,11 @@ def _is_nanogap_request(prompt: str) -> bool:
     return any(token in lowered for token in ["nano-gap", "nanogap", "nano gap", "나노 갭", "터널링", "tunneling"])
 
 
+def _is_srr_feedline_request(prompt: str) -> bool:
+    lowered = prompt.lower()
+    return any(token in lowered for token in ["srr", "feedline", "inductive coupling"])
+
+
 def _physical_dimensions(spec: LayoutSpec) -> dict[str, float]:
     if isinstance(spec, ElectrodeLayoutSpec):
         return {
@@ -348,6 +423,22 @@ def _physical_dimensions(spec: LayoutSpec) -> dict[str, float]:
             "electrode_width_um": spec.electrode_width_um,
             "marker_box_size_um": spec.marker_box_size_um,
             "marker_box_pitch_um": spec.marker_box_pitch_um,
+            "frame_width_um": spec.frame_width_um,
+        }
+    if isinstance(spec, SRRFeedlineLayoutSpec):
+        return {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "srr_outer_size_um": spec.srr_outer_size_um,
+            "srr_inner_size_um": spec.srr_inner_size_um,
+            "ring_width_um": spec.ring_width_um,
+            "capacitive_gap_um": spec.capacitive_gap_um,
+            "srr_feedline_gap_um": spec.srr_feedline_gap_um,
+            "feedline_length_um": spec.feedline_length_um,
+            "feedline_width_um": spec.feedline_width_um,
+            "feedline_ground_gap_um": spec.feedline_ground_gap_um,
+            "ground_width_um": spec.ground_width_um,
+            "ground_height_um": spec.ground_height_um,
             "frame_width_um": spec.frame_width_um,
         }
     return {

@@ -15,6 +15,7 @@ from .semantic import (
     LayoutSpec,
     MicroChannelLayoutSpec,
     NanoGapArrayLayoutSpec,
+    SRRFeedlineLayoutSpec,
     SemanticHarness,
 )
 
@@ -114,6 +115,21 @@ def _engineering_analysis(spec: LayoutSpec) -> str:
                 f"- Identifier layer: {spec.marker_layer_name} = ({spec.marker_layer}, {spec.marker_datatype})",
                 f"- Identifier pattern: 1 to {spec.device_count} marker boxes beside each device",
                 f"- Hierarchy: {spec.root_cell} contains one {spec.array_cell} instance at (0um, 0um)",
+            ]
+            + common[2:]
+        )
+    if isinstance(spec, SRRFeedlineLayoutSpec):
+        return "\n".join(
+            common[:2]
+            + [
+                f"- SRR cell: {spec.srr_cell}",
+                f"- SRR outer square: {spec.srr_outer_size_um:g}um x {spec.srr_outer_size_um:g}um",
+                f"- SRR inner cutout: {spec.srr_inner_size_um:g}um x {spec.srr_inner_size_um:g}um",
+                f"- SRR ring width: {spec.ring_width_um:g}um",
+                f"- Capacitive gap: {spec.capacitive_gap_um:g}um on top conductor",
+                f"- Feedline: {spec.feedline_length_um:g}um x {spec.feedline_width_um:g}um, {spec.srr_feedline_gap_um:g}um below SRR",
+                f"- Ground pad: {spec.ground_width_um:g}um x {spec.ground_height_um:g}um, {spec.feedline_ground_gap_um:g}um below feedline",
+                f"- Hierarchy: {spec.root_cell} contains one {spec.srr_cell} instance at (0um, 0um)",
             ]
             + common[2:]
         )

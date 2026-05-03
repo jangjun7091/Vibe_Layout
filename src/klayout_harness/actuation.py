@@ -4,7 +4,14 @@ from pathlib import Path
 
 from .cad import CADHarness
 from .context import DesignContext
-from .semantic import ElectrodeLayoutSpec, HallBarLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, NanoGapArrayLayoutSpec
+from .semantic import (
+    ElectrodeLayoutSpec,
+    HallBarLayoutSpec,
+    LayoutSpec,
+    MicroChannelLayoutSpec,
+    NanoGapArrayLayoutSpec,
+    SRRFeedlineLayoutSpec,
+)
 
 
 class ToolActuationHarness:
@@ -36,6 +43,9 @@ class ToolActuationHarness:
             return
         if isinstance(self.spec, NanoGapArrayLayoutSpec):
             self._build_nanogap_array(cad)
+            return
+        if isinstance(self.spec, SRRFeedlineLayoutSpec):
+            self._build_srr_feedline(cad)
             return
         if isinstance(self.spec, MicroChannelLayoutSpec):
             self._build_micro_channel(cad)
@@ -213,6 +223,48 @@ class ToolActuationHarness:
 
         cad.add_instance_um(spec.root_cell, spec.array_cell, 0, 0)
 
+    def _build_srr_feedline(self, cad: CADHarness) -> None:
+        spec = self.spec
+        assert isinstance(spec, SRRFeedlineLayoutSpec)
+        cad.create_cell(spec.root_cell)
+        cad.create_cell(spec.srr_cell)
+        cad.add_frame_um(spec.root_cell, spec.layer_name, spec.root_width_um, spec.root_height_um, spec.frame_width_um)
+
+        y0 = spec.vertical_offset_um
+        half_outer = spec.srr_outer_size_um / 2
+        half_inner = spec.srr_inner_size_um / 2
+        half_gap = spec.capacitive_gap_um / 2
+
+        # SRR: square ring represented as closed rectangular conductors, with a top capacitive gap.
+        cad.add_box_um(spec.srr_cell, spec.layer_name, -half_outer, y0 + half_inner, -half_gap, y0 + half_outer)
+        cad.add_box_um(spec.srr_cell, spec.layer_name, half_gap, y0 + half_inner, half_outer, y0 + half_outer)
+        cad.add_box_um(spec.srr_cell, spec.layer_name, -half_outer, y0 - half_outer, half_outer, y0 - half_inner)
+        cad.add_box_um(spec.srr_cell, spec.layer_name, -half_outer, y0 - half_inner, -half_inner, y0 + half_inner)
+        cad.add_box_um(spec.srr_cell, spec.layer_name, half_inner, y0 - half_inner, half_outer, y0 + half_inner)
+
+        feed_top = y0 - half_outer - spec.srr_feedline_gap_um
+        feed_bottom = feed_top - spec.feedline_width_um
+        cad.add_box_um(
+            spec.srr_cell,
+            spec.layer_name,
+            -spec.feedline_length_um / 2,
+            feed_bottom,
+            spec.feedline_length_um / 2,
+            feed_top,
+        )
+
+        ground_top = feed_bottom - spec.feedline_ground_gap_um
+        ground_bottom = ground_top - spec.ground_height_um
+        cad.add_box_um(
+            spec.srr_cell,
+            spec.layer_name,
+            -spec.ground_width_um / 2,
+            ground_bottom,
+            spec.ground_width_um / 2,
+            ground_top,
+        )
+        cad.add_instance_um(spec.root_cell, spec.srr_cell, 0, 0)
+
     def output_path(self, directory: str | Path) -> Path:
         return Path(directory) / f"{self.spec.root_cell}.gds"
 
@@ -222,6 +274,8 @@ class ToolActuationHarness:
             return self._hall_bar_python_code(output_path)
         if isinstance(spec, NanoGapArrayLayoutSpec):
             return self._nanogap_array_python_code(output_path)
+        if isinstance(spec, SRRFeedlineLayoutSpec):
+            return self._srr_feedline_python_code(output_path)
         if isinstance(spec, MicroChannelLayoutSpec):
             return self._micro_channel_python_code(output_path)
         assert isinstance(spec, ElectrodeLayoutSpec)
@@ -387,6 +441,52 @@ for index, gap_um in enumerate(gaps_um):
         marker_x = marker_start_x + marker_index * {spec.marker_box_pitch_um!r}
         add_box(array, marker_layer, marker_x - half_marker, {spec.marker_offset_y_um!r} - half_marker, marker_x + half_marker, {spec.marker_offset_y_um!r} + half_marker)
 root.insert(kdb.CellInstArray(array.cell_index(), kdb.Trans(0, 0)))
+layout.write(r"{Path(output_path)}")
+'''
+
+    def _srr_feedline_python_code(self, output_path: str | Path) -> str:
+        spec = self.spec
+        assert isinstance(spec, SRRFeedlineLayoutSpec)
+        return f'''import klayout.db as kdb
+
+dbu_um = {spec.rules.dbu_um!r}
+layout = kdb.Layout()
+layout.dbu = dbu_um
+layer = layout.layer({spec.layer}, {spec.datatype})
+root = layout.create_cell("{spec.root_cell}")
+srr = layout.create_cell("{spec.srr_cell}")
+
+def dbu(value_um):
+    return int(round(value_um / dbu_um))
+
+def add_box(cell, x1, y1, x2, y2):
+    cell.shapes(layer).insert(kdb.Box(dbu(x1), dbu(y1), dbu(x2), dbu(y2)))
+
+half_root_w = {spec.root_width_um!r} / 2
+half_root_h = {spec.root_height_um!r} / 2
+stroke = {spec.frame_width_um!r}
+add_box(root, -half_root_w, -half_root_h, half_root_w, -half_root_h + stroke)
+add_box(root, -half_root_w, half_root_h - stroke, half_root_w, half_root_h)
+add_box(root, -half_root_w, -half_root_h + stroke, -half_root_w + stroke, half_root_h - stroke)
+add_box(root, half_root_w - stroke, -half_root_h + stroke, half_root_w, half_root_h - stroke)
+
+y0 = {spec.vertical_offset_um!r}
+half_outer = {spec.srr_outer_size_um!r} / 2
+half_inner = {spec.srr_inner_size_um!r} / 2
+half_gap = {spec.capacitive_gap_um!r} / 2
+add_box(srr, -half_outer, y0 + half_inner, -half_gap, y0 + half_outer)
+add_box(srr, half_gap, y0 + half_inner, half_outer, y0 + half_outer)
+add_box(srr, -half_outer, y0 - half_outer, half_outer, y0 - half_inner)
+add_box(srr, -half_outer, y0 - half_inner, -half_inner, y0 + half_inner)
+add_box(srr, half_inner, y0 - half_inner, half_outer, y0 + half_inner)
+
+feed_top = y0 - half_outer - {spec.srr_feedline_gap_um!r}
+feed_bottom = feed_top - {spec.feedline_width_um!r}
+add_box(srr, -{spec.feedline_length_um!r} / 2, feed_bottom, {spec.feedline_length_um!r} / 2, feed_top)
+ground_top = feed_bottom - {spec.feedline_ground_gap_um!r}
+ground_bottom = ground_top - {spec.ground_height_um!r}
+add_box(srr, -{spec.ground_width_um!r} / 2, ground_bottom, {spec.ground_width_um!r} / 2, ground_top)
+root.insert(kdb.CellInstArray(srr.cell_index(), kdb.Trans(0, 0)))
 layout.write(r"{Path(output_path)}")
 '''
 

@@ -11,6 +11,7 @@ from .semantic import (
     LayoutSpec,
     MicroChannelLayoutSpec,
     NanoGapArrayLayoutSpec,
+    SRRFeedlineLayoutSpec,
     maps_exactly_to_dbu,
 )
 
@@ -146,6 +147,15 @@ class FeedbackHarness:
                         "Nano-gap array width exceeds root cell clearance.",
                     )
                 )
+        if isinstance(spec, SRRFeedlineLayoutSpec):
+            if spec.srr_inner_size_um >= spec.srr_outer_size_um:
+                findings.append(_finding("srr.inner_size", None, spec.layer_name, "SRR inner square must be smaller than outer square."))
+            if spec.capacitive_gap_um >= spec.srr_outer_size_um - spec.ring_width_um:
+                findings.append(_finding("srr.capacitive_gap", None, spec.layer_name, "SRR capacitive gap is too large for the top conductor."))
+            if spec.device_width_um > spec.root_width_um - 2 * spec.frame_width_um:
+                findings.append(_finding("geometry.device_clearance", spec.root_cell, spec.layer_name, "SRR device width exceeds root cell clearance."))
+            if spec.device_height_um > spec.root_height_um - 2 * spec.frame_width_um:
+                findings.append(_finding("geometry.device_clearance", spec.root_cell, spec.layer_name, "SRR device height exceeds root cell clearance."))
         return ValidationReport(passed=not findings, findings=findings)
 
     def validate_gds_electrode(self, path: str | Path, spec: ElectrodeLayoutSpec) -> ValidationReport:
@@ -241,6 +251,15 @@ class FeedbackHarness:
                         f"Expected {spec.device_count * 2} nano-gap electrode shapes, found {electrode_shapes}.",
                     )
                 )
+        if isinstance(spec, SRRFeedlineLayoutSpec) and unit_shapes != 7:
+            findings.append(
+                _finding(
+                    "geometry.srr_feedline_shape_count",
+                    child_cell_name,
+                    spec.layer_name,
+                    f"Expected 7 SRR/feedline/ground shapes, found {unit_shapes}.",
+                )
+            )
             if marker_shapes != expected_marker_shapes:
                 findings.append(
                     _finding(
@@ -283,13 +302,23 @@ class FeedbackHarness:
                     child_cell_name,
                     spec.layer_name,
                 )
-            else:
+            elif isinstance(spec, NanoGapArrayLayoutSpec):
                 _expect_bbox(
                     findings,
                     unit.bbox(),
                     layout.dbu,
                     spec.active_width_um,
                     spec.array_height_um,
+                    child_cell_name,
+                    spec.layer_name,
+                )
+            else:
+                _expect_bbox(
+                    findings,
+                    unit.bbox(),
+                    layout.dbu,
+                    spec.device_width_um,
+                    spec.device_height_um,
                     child_cell_name,
                     spec.layer_name,
                 )
@@ -371,6 +400,22 @@ def _spec_dimensions(spec: LayoutSpec) -> dict[str, float]:
             "marker_box_pitch_um": spec.marker_box_pitch_um,
             "frame_width_um": spec.frame_width_um,
         }
+    if isinstance(spec, SRRFeedlineLayoutSpec):
+        return {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "srr_outer_size_um": spec.srr_outer_size_um,
+            "srr_inner_size_um": spec.srr_inner_size_um,
+            "ring_width_um": spec.ring_width_um,
+            "capacitive_gap_um": spec.capacitive_gap_um,
+            "srr_feedline_gap_um": spec.srr_feedline_gap_um,
+            "feedline_length_um": spec.feedline_length_um,
+            "feedline_width_um": spec.feedline_width_um,
+            "feedline_ground_gap_um": spec.feedline_ground_gap_um,
+            "ground_width_um": spec.ground_width_um,
+            "ground_height_um": spec.ground_height_um,
+            "frame_width_um": spec.frame_width_um,
+        }
     return {
         "root_width_um": spec.root_width_um,
         "root_height_um": spec.root_height_um,
@@ -392,4 +437,6 @@ def _child_cell_name(spec: LayoutSpec) -> str:
         return spec.channel_cell
     if isinstance(spec, NanoGapArrayLayoutSpec):
         return spec.array_cell
+    if isinstance(spec, SRRFeedlineLayoutSpec):
+        return spec.srr_cell
     return spec.hall_cell
