@@ -13,10 +13,12 @@ GitHub project page shows the current layout capabilities at a glance.
 | Electrode unit | Bio sensor micro-channel |
 | --- | --- |
 | ![Centered electrode unit](docs/images/electrode-unit.png) | ![Bio sensor micro-channel](docs/images/micro-channel.png) |
+| `[Vibe_Layout] $1mm \times 1mm$ root cell 'CHIP_ROOT'. Create sub cell 'ELECTRODE_UNIT' with width $50\mu m$ and length $800\mu m$ on Microwriter layer (1, 0).` | `[Vibe_Layout] Design a bio sensor Micro-channel pattern. The fluid flow should be smooth and the reaction area should be large. Use Microwriter layer (1, 0).` |
 
 | 6-terminal Hall bar | Nano-gap array |
 | --- | --- |
 | ![Standard 6-terminal Hall bar](docs/images/hall-bar-6t.png) | ![Tunneling nano-gap array](docs/images/nanogap-array.png) |
+| `[Vibe_Layout] Design a Standard 6-terminal Hall Bar for Quantum Hall Effect measurement. Use a 50um main channel width, 10um voltage leads, 200um x 200um bonding pads, and place the full device on layer (1, 0).` | `[Vibe_Layout] Design a tunneling effect Nano-gap array. Sweep the gap between two electrodes from 0.6um to 2.0um in 0.2um steps for 8 devices arranged horizontally. Keep 100um spacing between devices and add identifier box patterns on layer (2, 0).` |
 
 ## Architecture
 
