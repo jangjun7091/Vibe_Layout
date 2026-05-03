@@ -26,12 +26,22 @@ class TextOp:
     y: int
 
 
+@dataclass(frozen=True)
+class InstanceOp:
+    parent_cell: str
+    child_cell: str
+    x: int
+    y: int
+
+
 class CADBackend(Protocol):
     def create_cell(self, name: str) -> None: ...
 
     def add_box(self, op: BoxOp) -> None: ...
 
     def add_text(self, op: TextOp) -> None: ...
+
+    def add_instance(self, op: InstanceOp) -> None: ...
 
     def write_gds(self, path: str | Path) -> Path: ...
 
@@ -41,6 +51,7 @@ class RecordingBackend:
     cells: set[str] = field(default_factory=set)
     boxes: list[BoxOp] = field(default_factory=list)
     texts: list[TextOp] = field(default_factory=list)
+    instances: list[InstanceOp] = field(default_factory=list)
     written_path: Path | None = None
 
     def create_cell(self, name: str) -> None:
@@ -53,6 +64,11 @@ class RecordingBackend:
     def add_text(self, op: TextOp) -> None:
         self.cells.add(op.cell)
         self.texts.append(op)
+
+    def add_instance(self, op: InstanceOp) -> None:
+        self.cells.add(op.parent_cell)
+        self.cells.add(op.child_cell)
+        self.instances.append(op)
 
     def write_gds(self, path: str | Path) -> Path:
         self.written_path = Path(path)
@@ -83,6 +99,11 @@ class KLayoutBackend:
         text = self.kdb.Text(op.text, self.kdb.Trans(op.x, op.y))
         cell.shapes(layer_index).insert(text)
 
+    def add_instance(self, op: InstanceOp) -> None:
+        parent = self._cell(op.parent_cell)
+        child = self._cell(op.child_cell)
+        parent.insert(self.kdb.CellInstArray(child.cell_index(), self.kdb.Trans(op.x, op.y)))
+
     def write_gds(self, path: str | Path) -> Path:
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -101,6 +122,9 @@ class CADHarness:
 
     def create_cell(self, name: str) -> None:
         self.backend.create_cell(name)
+
+    def ensure_layer(self, name: str, layer: int, datatype: int = 0) -> None:
+        self.context.layers[name] = LayerSpec(name=name, layer=layer, datatype=datatype)
 
     def add_box_um(
         self,
@@ -130,6 +154,29 @@ class CADHarness:
             y=self.context.dbu(y_um),
         )
         self.backend.add_text(op)
+
+    def add_instance_um(self, parent_cell: str, child_cell: str, x_um: float, y_um: float) -> None:
+        op = InstanceOp(
+            parent_cell=parent_cell,
+            child_cell=child_cell,
+            x=self.context.dbu(x_um),
+            y=self.context.dbu(y_um),
+        )
+        self.backend.add_instance(op)
+
+    def add_centered_box_um(self, cell: str, layer: str, width_um: float, height_um: float) -> None:
+        half_width = width_um / 2
+        half_height = height_um / 2
+        self.add_box_um(cell, layer, -half_width, -half_height, half_width, half_height)
+
+    def add_frame_um(self, cell: str, layer: str, width_um: float, height_um: float, stroke_um: float) -> None:
+        half_width = width_um / 2
+        half_height = height_um / 2
+        half_stroke = stroke_um / 2
+        self.add_box_um(cell, layer, -half_width, -half_height, half_width, -half_height + stroke_um)
+        self.add_box_um(cell, layer, -half_width, half_height - stroke_um, half_width, half_height)
+        self.add_box_um(cell, layer, -half_width, -half_height + stroke_um, -half_width + stroke_um, half_height - stroke_um)
+        self.add_box_um(cell, layer, half_width - stroke_um, -half_height + stroke_um, half_width, half_height - stroke_um)
 
     def write_gds(self, path: str | Path) -> Path:
         return self.backend.write_gds(path)

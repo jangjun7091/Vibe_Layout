@@ -19,13 +19,27 @@ context, CAD operations, validation, and iterative correction.
 ## Quick Start
 
 ```powershell
-python -m pip install -e .[dev]
+python -m pip install -e .[dev,gds]
 python examples/simple_cell.py
 python -m pytest
 ```
 
 KLayout Python bindings are loaded lazily. Unit tests use an in-memory backend,
-so they can run before KLayout is installed.
+so they can run before KLayout is installed. Real GDS generation requires the
+`gds` extra or another installation that provides `klayout.db`.
+
+## Generate From A Request
+
+```powershell
+$prompt = @'
+Vibe_Layout, $1mm \times 1mm$ 크기의 메인 셀 'CHIP_ROOT'를 생성해줘. 그 안에 'ELECTRODE_UNIT'이라는 서브 셀을 만들고, 폭 $50\mu m$, 길이 $800\mu m$의 박스를 중앙에 배치해. 단위는 반드시 $\mu m$ 기준이어야 하며, Microwriter에서 인식할 수 있도록 레이어는 (1, 0)으로 설정해줘.
+'@
+vibe-layout $prompt --open
+```
+
+This constrained request creates a `CHIP_ROOT` cell, an `ELECTRODE_UNIT`
+subcell, a centered `50 um x 800 um` electrode on layer `(1, 0)`, and a
+`1 mm x 1 mm` root-cell frame.
 
 ## Real GDS Output
 

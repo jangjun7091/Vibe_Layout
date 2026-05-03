@@ -16,6 +16,12 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
+gds = [
+  "klayout>=0.30",
+]
+
+[project.scripts]
+vibe-layout = "klayout_harness.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
