@@ -36,6 +36,8 @@ def test_server_serves_viewer_page(tmp_path: Path) -> None:
     assert "[Vibe_Layout]" in response.text
     assert "open_viewer: false" in response.text
     assert "job_id" in response.text
+    assert "/api/layouts/latest" in response.text
+    assert "vibe_layout_token" in response.text
 
 
 def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
@@ -62,10 +64,39 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     gds_response = client.get(f"/api/layouts/{job_id}/layout.gds", headers=headers)
 
     assert status_response.status_code == 200
+    assert status_response.json()["viewer_url"] == job["viewer_url"]
+    assert status_response.json()["agent_action"]["url"] == job["viewer_url"]
     assert preview_response.status_code == 200
     assert preview_response.headers["content-type"] == "image/png"
     assert gds_response.status_code == 200
     assert len(gds_response.content) > 0
+
+
+def test_server_returns_latest_layout_job(tmp_path: Path) -> None:
+    client = TestClient(create_app(token="secret", jobs_dir=tmp_path))
+    headers = {"Authorization": "Bearer secret"}
+    first = client.post("/api/layouts", json={"prompt": PROMPT}, headers=headers).json()
+    second = client.post(
+        "/api/layouts",
+        json={"prompt": PROMPT.replace("CHIP_ROOT", "CHIP_ROOT_2")},
+        headers=headers,
+    ).json()
+
+    response = client.get("/api/layouts/latest", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["job_id"] == second["job_id"]
+    assert response.json()["job_id"] != first["job_id"]
+    assert response.json()["viewer_url"] == second["viewer_url"]
+    assert response.json()["agent_action"]["url"] == second["viewer_url"]
+
+
+def test_server_latest_layout_returns_404_without_jobs(tmp_path: Path) -> None:
+    client = TestClient(create_app(token="secret", jobs_dir=tmp_path))
+
+    response = client.get("/api/layouts/latest", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 404
 
 
 def test_server_auto_opens_viewer_for_api_job(tmp_path: Path, monkeypatch) -> None:

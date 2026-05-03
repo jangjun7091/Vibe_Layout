@@ -75,22 +75,25 @@ def create_app(
     @app.post("/api/layouts", dependencies=[Depends(require_auth)])
     def create_layout(request: LayoutRequest) -> dict:
         job = runner.run(request.prompt)
-        viewer_url = _viewer_url_for_job(app.state.vibe_layout_viewer_base_url, job.job_id, auth_token)
-        response = job.to_dict()
-        response["viewer_url"] = viewer_url
-        response["viewer_opened"] = False
-        response["agent_action"] = _agent_action_for_viewer(viewer_url)
+        response = _job_response(job, app.state.vibe_layout_viewer_base_url, auth_token)
         should_open_viewer = request.open_viewer if request.open_viewer is not None else auto_open_viewer
         if should_open_viewer and job.status == "completed":
-            response["viewer_opened"] = _open_viewer_url(viewer_url)["opened"]
+            response["viewer_opened"] = _open_viewer_url(response["viewer_url"])["opened"]
         return response
+
+    @app.get("/api/layouts/latest", dependencies=[Depends(require_auth)])
+    def get_latest_layout() -> dict:
+        job = runner.latest()
+        if job is None:
+            raise HTTPException(status_code=404, detail="No layout jobs found")
+        return _job_response(job, app.state.vibe_layout_viewer_base_url, auth_token)
 
     @app.get("/api/layouts/{job_id}", dependencies=[Depends(require_auth)])
     def get_layout(job_id: str) -> dict:
         job = runner.load(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
-        return job.to_dict()
+        return _job_response(job, app.state.vibe_layout_viewer_base_url, auth_token)
 
     @app.get("/api/layouts/{job_id}/preview.png", dependencies=[Depends(require_auth)])
     def get_preview(job_id: str) -> FileResponse:
@@ -161,6 +164,15 @@ def _open_viewer_for_job(base_url: str, job_id: str, token: str) -> dict:
 
 def _viewer_url_for_job(base_url: str, job_id: str, token: str) -> str:
     return f"{base_url.rstrip('/')}/viewer#job_id={quote(job_id)}&token={quote(token)}"
+
+
+def _job_response(job, base_url: str, token: str) -> dict:
+    viewer_url = _viewer_url_for_job(base_url, job.job_id, token)
+    response = job.to_dict()
+    response["viewer_url"] = viewer_url
+    response["viewer_opened"] = False
+    response["agent_action"] = _agent_action_for_viewer(viewer_url)
+    return response
 
 
 def _agent_action_for_viewer(viewer_url: str) -> dict:
@@ -450,6 +462,13 @@ VIEWER_HTML = r"""<!doctype html>
       return token ? { "Authorization": `Bearer ${token}` } : {};
     }
 
+    function rememberToken() {
+      const token = tokenInput.value.trim();
+      if (token) {
+        window.localStorage.setItem("vibe_layout_token", token);
+      }
+    }
+
     function setStatus(text, failed = false) {
       statusText.textContent = text;
       statusText.className = failed ? "status bad" : "status";
@@ -496,12 +515,26 @@ VIEWER_HTML = r"""<!doctype html>
     }
 
     async function loadJob(jobId) {
+      if (!jobId) {
+        return await loadLatestJob();
+      }
       setStatus(`Loading ${jobId}...`);
       const response = await fetch(`/api/layouts/${jobId}`, { headers: authHeaders() });
       if (!response.ok) {
         throw new Error(`${response.status} ${await response.text()}`);
       }
       await renderJob(await response.json());
+    }
+
+    async function loadLatestJob() {
+      setStatus("Loading latest layout job...");
+      const response = await fetch("/api/layouts/latest", { headers: authHeaders() });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${await response.text()}`);
+      }
+      const job = await response.json();
+      window.location.hash = `job_id=${encodeURIComponent(job.job_id)}&token=${encodeURIComponent(tokenInput.value.trim())}`;
+      await renderJob(job);
     }
 
     async function generate() {
@@ -517,6 +550,7 @@ VIEWER_HTML = r"""<!doctype html>
       downloadPng.disabled = true;
       preview.hidden = true;
       setStatus("Generating...");
+      rememberToken();
       jobLog.textContent = "Submitting job...";
       codeLog.textContent = "Waiting for generated artifact metadata...";
       try {
@@ -597,6 +631,9 @@ VIEWER_HTML = r"""<!doctype html>
     const startupParams = new URLSearchParams(window.location.hash.slice(1));
     if (startupParams.has("token")) {
       tokenInput.value = startupParams.get("token");
+      rememberToken();
+    } else {
+      tokenInput.value = window.localStorage.getItem("vibe_layout_token") || tokenInput.value;
     }
     if (startupParams.has("job_id")) {
       loadJob(startupParams.get("job_id")).catch((error) => {

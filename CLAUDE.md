@@ -11,5 +11,9 @@ Required flow:
    browser preview.
 4. Report the Viewer URL to the user.
 
+If the browser is already at `/viewer#job_id=` or another Viewer URL without a
+usable job id, call `GET /api/layouts/latest` and open the returned
+`agent_action.url`.
+
 Do not open `preview.png`, generated standalone `file://...viewer.html` files,
 or raw artifacts as the primary result when a Viewer URL is available.

@@ -14,6 +14,10 @@ Viewer as the canonical result surface.
    - Claude Code: open it in the Claude Code browser preview.
 4. Report the Viewer URL to the user.
 
+If the browser is already at `/viewer#job_id=` or another Viewer URL without a
+usable job id, open `/viewer` with the known token or call `GET
+/api/layouts/latest` and open the returned `agent_action.url`.
+
 ## Do Not
 
 - Do not open `preview.png` as the primary result.

@@ -125,6 +125,18 @@ class LayoutJobRunner:
         data = json.loads(job_path.read_text(encoding="utf-8"))
         return LayoutJob(**data)
 
+    def latest(self) -> LayoutJob | None:
+        if not self.jobs_dir.is_dir():
+            return None
+
+        latest_job: LayoutJob | None = None
+        for job_path in self.jobs_dir.glob("*/job.json"):
+            data = json.loads(job_path.read_text(encoding="utf-8"))
+            job = LayoutJob(**data)
+            if latest_job is None or job.updated_at > latest_job.updated_at:
+                latest_job = job
+        return latest_job
+
     def _write_job(self, job_dir: Path, job: LayoutJob) -> None:
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "job.json").write_text(json.dumps(job.to_dict(), indent=2), encoding="utf-8")

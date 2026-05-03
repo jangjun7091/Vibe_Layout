@@ -106,6 +106,7 @@ Useful endpoints:
 
 - `POST /api/layouts`
 - `GET /api/layouts/{job_id}`
+- `GET /api/layouts/latest`
 - `GET /api/layouts/{job_id}/preview.png`
 - `GET /api/layouts/{job_id}/layout.gds`
 - `WS /ws/jobs/{job_id}`
@@ -115,6 +116,8 @@ Successful `POST /api/layouts` responses include `viewer_url` and
 browser surface, such as the Codex in-app browser or Claude Code browser
 preview. The Viewer URL is the canonical review surface; generated PNG, GDS,
 and standalone HTML artifacts are secondary downloads.
+If `/viewer#job_id=` is opened without a job id, the Viewer attempts to load the
+latest layout job through `GET /api/layouts/latest`.
 
 The server stores generated artifacts under `build/jobs/{job_id}/` and requires
 `Authorization: Bearer <token>` for API and WebSocket access.
