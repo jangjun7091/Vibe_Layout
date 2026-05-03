@@ -1,5 +1,12 @@
 # Vibe_Layout
 
+Prompt-to-GDS layout generation for KLayout, Codex, and Claude Code.
+
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![KLayout](https://img.shields.io/badge/KLayout-GDSII-2f6f4e)](https://www.klayout.de/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-realtime%20viewer-009688)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Vibe_Layout is an open-source, harness-based KLayout design agent that turns
 high-level layout intent into verified GDS output.
 
@@ -14,6 +21,17 @@ request through three executable harnesses before a layout is accepted.
 The canonical review surface is Vibe Layout Viewer. PNG previews and raw GDS
 files are downloadable artifacts, but users should inspect generated layouts in
 the Viewer first and then optionally open the same GDS in KLayout.
+
+![Vibe Layout Viewer showing a generated bio sensor micro-channel](docs/images/micro-channel%20viewer.png)
+
+## Why Vibe_Layout?
+
+- Prompt-to-GDS: convert high-level device intent into layout geometry.
+- Verification first: reject invalid layouts instead of silently writing GDS.
+- Agent ready: designed for Codex and Claude Code workflows.
+- Local-first: runs on localhost with bearer-token protected HTTP and WebSocket
+  APIs.
+- KLayout-native: generates reproducible `klayout.db` Python code and GDS.
 
 ## Result Gallery
 
@@ -72,6 +90,8 @@ so most tests can run before KLayout is installed. Real GDS generation requires
 the `gds` extra or another installation that provides `klayout.db`.
 
 For a fuller walkthrough, see [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+To add a new supported device family, see
+[docs/ADDING_LAYOUT_INTENTS.md](docs/ADDING_LAYOUT_INTENTS.md).
 
 ## Generate From A Request
 
@@ -182,5 +202,15 @@ Recommended next work:
 - Add a richer parameter editor in Vibe Layout Viewer.
 - Add direct KLayout macro/plugin bridge support for live GUI synchronization.
 - Add design-rule profiles for different fabrication processes.
-- Add GitHub Actions CI for tests and example GDS generation.
-- Add contribution guidelines and issue templates.
+- Extend GitHub Actions CI with generated example artifact checks.
+- Expand contribution examples and issue templates as new layout families land.
+
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and
+open focused pull requests for one layout family, harness improvement, or Viewer
+feature at a time.
+
+## License
+
+Vibe_Layout is released under the [MIT License](LICENSE).

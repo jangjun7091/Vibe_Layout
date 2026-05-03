@@ -8,6 +8,16 @@ version = "0.1.0"
 description = "Harness-based KLayout design agent scaffold"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Manufacturing",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
 dependencies = [
   "PyYAML>=6.0",
 ]
