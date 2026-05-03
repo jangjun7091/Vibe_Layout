@@ -68,3 +68,32 @@ vibe-layout $prompt --open --klayout-exe "C:\Path\To\klayout.exe"
 
 If no executable is found, the CLI falls back to Windows `.gds` file
 association.
+
+## Realtime Server
+
+Install server dependencies and start the localhost API:
+
+```powershell
+python -m pip install -e .[dev,gds,server]
+$env:VIBE_LAYOUT_TOKEN = "local-dev-token"
+vibe-layout-server --host 127.0.0.1 --port 8765
+```
+
+Create a layout job:
+
+```powershell
+$headers = @{ Authorization = "Bearer local-dev-token" }
+$body = @{ prompt = $prompt; open_gui = $false } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/layouts" -Method Post -Headers $headers -ContentType "application/json" -Body $body
+```
+
+Useful endpoints:
+
+- `POST /api/layouts`
+- `GET /api/layouts/{job_id}`
+- `GET /api/layouts/{job_id}/preview.png`
+- `GET /api/layouts/{job_id}/layout.gds`
+- `WS /ws/jobs/{job_id}`
+
+The server stores generated artifacts under `build/jobs/{job_id}/` and requires
+`Authorization: Bearer <token>` for API and WebSocket access.

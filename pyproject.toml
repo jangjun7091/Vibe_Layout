@@ -15,13 +15,20 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  "httpx>=0.27",
 ]
 gds = [
   "klayout>=0.30",
 ]
+server = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "Pillow>=10",
+]
 
 [project.scripts]
 vibe-layout = "klayout_harness.cli:main"
+vibe-layout-server = "klayout_harness.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
