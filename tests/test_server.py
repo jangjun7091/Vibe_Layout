@@ -20,6 +20,16 @@ def test_server_rejects_unauthorized_request(tmp_path: Path) -> None:
     assert response.status_code == 401
 
 
+def test_server_serves_viewer_page(tmp_path: Path) -> None:
+    client = TestClient(create_app(token="secret", jobs_dir=tmp_path))
+
+    response = client.get("/viewer")
+
+    assert response.status_code == 200
+    assert "Vibe Layout Viewer" in response.text
+    assert "Generate" in response.text
+
+
 def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     client = TestClient(create_app(token="secret", jobs_dir=tmp_path))
     headers = {"Authorization": "Bearer secret"}
