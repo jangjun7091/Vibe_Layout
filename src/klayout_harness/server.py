@@ -343,10 +343,10 @@ VIEWER_HTML = r"""<!doctype html>
     </div>
     <div>
       <label for="prompt">Prompt</label>
-      <textarea id="prompt">Vibe_Layout, design a Standard 6-terminal Hall Bar for Quantum Hall Effect measurement. Use a 50um main channel width, 10um voltage leads, 200um x 200um bonding pads, and place the full device on layer (1, 0).</textarea>
+      <textarea id="prompt">[Vibe_Layout] design a Standard 6-terminal Hall Bar for Quantum Hall Effect measurement. Use a 50um main channel width, 10um voltage leads, 200um x 200um bonding pads, and place the full device on layer (1, 0).</textarea>
     </div>
     <button id="generate">Generate Layout</button>
-    <div class="meta">Generated GDS and preview files are stored under build/jobs.</div>
+    <div class="meta">Start layout-generation prompts with [Vibe_Layout]. Generated GDS and preview files are stored under build/jobs.</div>
   </aside>
 
   <main class="stage">
@@ -452,6 +452,12 @@ VIEWER_HTML = r"""<!doctype html>
     }
 
     async function generate() {
+      if (!/^\s*(\[Vibe_Layout\]|Vibe_Layout)(?:\s|[:,，-]|$)/i.test(promptInput.value)) {
+        jobLog.textContent = "Prompt must begin with [Vibe_Layout].";
+        codeLog.textContent = "No code generated.";
+        setStatus("Missing [Vibe_Layout] command", true);
+        return;
+      }
       generateButton.disabled = true;
       openKLayout.disabled = true;
       downloadGds.disabled = true;

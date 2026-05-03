@@ -6,7 +6,7 @@ from klayout_harness.server import create_app
 
 
 PROMPT = (
-    "Vibe_Layout, $1mm \\times 1mm$ root cell 'CHIP_ROOT'. "
+    "[Vibe_Layout] $1mm \\times 1mm$ root cell 'CHIP_ROOT'. "
     "Create sub cell 'ELECTRODE_UNIT' with width $50\\mu m$ and length $800\\mu m$ "
     "on Microwriter layer (1, 0)."
 )
@@ -33,6 +33,7 @@ def test_server_serves_viewer_page(tmp_path: Path) -> None:
     assert "Generated Code" in response.text
     assert "Open KLayout" in response.text
     assert "ctrlKey" in response.text
+    assert "[Vibe_Layout]" in response.text
 
 
 def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
@@ -57,6 +58,24 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     assert preview_response.headers["content-type"] == "image/png"
     assert gds_response.status_code == 200
     assert len(gds_response.content) > 0
+
+
+def test_server_fails_job_without_vibe_layout_command(tmp_path: Path) -> None:
+    client = TestClient(create_app(token="secret", jobs_dir=tmp_path))
+    headers = {"Authorization": "Bearer secret"}
+
+    response = client.post(
+        "/api/layouts",
+        json={"prompt": "$1mm \\times 1mm$ root cell 'CHIP_ROOT'."},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    job = response.json()
+    assert job["status"] == "failed"
+    assert not job["validation_passed"]
+    assert job["gds_path"] is None
+    assert "[Vibe_Layout]" in job["findings"][0]["message"]
 
 
 def test_server_opens_job_in_klayout(tmp_path: Path, monkeypatch) -> None:

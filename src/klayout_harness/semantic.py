@@ -93,13 +93,18 @@ class HallBarLayoutSpec:
 LayoutSpec: TypeAlias = ElectrodeLayoutSpec | MicroChannelLayoutSpec | HallBarLayoutSpec
 
 
+VIBE_COMMAND = "[Vibe_Layout]"
+_COMMAND_PATTERN = re.compile(r"^\s*(?:\[Vibe_Layout\]|Vibe_Layout)\s*[:,，-]?\s*(.+)$", re.IGNORECASE | re.DOTALL)
+
+
 class SemanticHarness:
     def parse(self, prompt: str) -> LayoutSpec:
-        if _is_hall_bar_request(prompt):
-            return self._parse_hall_bar(prompt)
-        if _is_micro_channel_request(prompt):
-            return self._parse_micro_channel(prompt)
-        return self._parse_electrode(prompt)
+        design_prompt = _extract_design_prompt(prompt)
+        if _is_hall_bar_request(design_prompt):
+            return self._parse_hall_bar(design_prompt)
+        if _is_micro_channel_request(design_prompt):
+            return self._parse_micro_channel(design_prompt)
+        return self._parse_electrode(design_prompt)
 
     def _parse_electrode(self, prompt: str) -> ElectrodeLayoutSpec:
         cells = re.findall(r"'([^']+)'|\"([^\"]+)\"", prompt)
@@ -202,6 +207,16 @@ def _find_pair(text: str, pattern: str) -> tuple[float, float] | None:
     if match is None:
         return None
     return float(match.group(1)), float(match.group(2))
+
+
+def _extract_design_prompt(prompt: str) -> str:
+    match = _COMMAND_PATTERN.match(prompt)
+    if match is None:
+        raise ValueError(f"Layout generation prompts must begin with {VIBE_COMMAND}.")
+    design_prompt = match.group(1).strip()
+    if not design_prompt:
+        raise ValueError(f"Layout generation prompts must include a design request after {VIBE_COMMAND}.")
+    return design_prompt
 
 
 def _is_micro_channel_request(prompt: str) -> bool:
