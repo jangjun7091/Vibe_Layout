@@ -20,6 +20,11 @@ GitHub project page shows the current layout capabilities at a glance.
 | ![Standard 6-terminal Hall bar](docs/images/hall-bar-6t.png) | ![Tunneling nano-gap array](docs/images/nanogap-array.png) |
 | `[Vibe_Layout] Design a Standard 6-terminal Hall Bar for Quantum Hall Effect measurement. Use a 50um main channel width, 10um voltage leads, 200um x 200um bonding pads, and place the full device on layer (1, 0).` | `[Vibe_Layout] Design a tunneling effect Nano-gap array. Sweep the gap between two electrodes from 0.6um to 2.0um in 0.2um steps for 8 devices arranged horizontally. Keep 100um spacing between devices and add identifier box patterns on layer (2, 0).` |
 
+| Vibe Layout Viewer workflow | KLayout verification view |
+| --- | --- |
+| ![Bio sensor micro-channel in Vibe Layout Viewer](docs/images/micro-channel%20viewer.png) | ![Bio sensor micro-channel opened in KLayout](docs/images/micro-channel%20KLayout.png) |
+| `[Vibe_Layout] Bio sensor micro-channel request shown inside the local Viewer with prompt, layout preview, artifacts, job summary, and generated KLayout code.` | `The same generated BIO_SENSOR_ROOT.gds opened in KLayout for independent layout inspection on layer (1, 0).` |
+
 ## Architecture
 
 - Semantic Harness: converts user intent into typed physical parameters in
