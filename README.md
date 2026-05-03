@@ -1,9 +1,19 @@
-# Vibe Layout
+# Vibe_Layout
 
-Harness-based scaffold for building an intelligent KLayout design agent.
+Vibe_Layout is an open-source, harness-based KLayout design agent that turns
+high-level layout intent into verified GDS output.
 
 The project bridges high-level intent with precision GDS output by forcing each
 request through three executable harnesses before a layout is accepted.
+
+- Use it from the command line for reproducible GDS generation.
+- Use it as a local realtime server with Vibe Layout Viewer.
+- Use it inside Codex or Claude Code by asking an agent to run `[Vibe_Layout]`
+  prompts and open the returned Viewer URL in the agent's browser surface.
+
+The canonical review surface is Vibe Layout Viewer. PNG previews and raw GDS
+files are downloadable artifacts, but users should inspect generated layouts in
+the Viewer first and then optionally open the same GDS in KLayout.
 
 ## Result Gallery
 
@@ -24,6 +34,19 @@ GitHub project page shows the current layout capabilities at a glance.
 | --- | --- |
 | ![Bio sensor micro-channel in Vibe Layout Viewer](docs/images/micro-channel%20viewer.png) | ![Bio sensor micro-channel opened in KLayout](docs/images/micro-channel%20KLayout.png) |
 | `[Vibe_Layout] Bio sensor micro-channel request shown inside the local Viewer with prompt, layout preview, artifacts, job summary, and generated KLayout code.` | `The same generated BIO_SENSOR_ROOT.gds opened in KLayout for independent layout inspection on layer (1, 0).` |
+
+## What You Can Build Today
+
+The current scaffold supports these layout intents:
+
+- Centered electrode unit inside a `1 mm x 1 mm` root frame.
+- Bio sensor serpentine micro-channel.
+- Standard 6-terminal Hall bar.
+- Tunneling nano-gap array with gap sweep and marker layer.
+- SRR feedline inductive coupling device.
+
+Each supported intent goes through semantic parsing, parametric KLayout
+actuation, preview rendering, and validation before the job is accepted.
 
 ## Architecture
 
@@ -47,6 +70,8 @@ python -m pytest
 KLayout Python bindings are loaded lazily. Unit tests use an in-memory backend,
 so most tests can run before KLayout is installed. Real GDS generation requires
 the `gds` extra or another installation that provides `klayout.db`.
+
+For a fuller walkthrough, see [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ## Generate From A Request
 
@@ -126,3 +151,36 @@ latest layout job through `GET /api/layouts/latest`.
 
 The server stores generated artifacts under `build/jobs/{job_id}/` and requires
 `Authorization: Bearer <token>` for API and WebSocket access.
+
+## Use With Codex Or Claude Code
+
+Vibe_Layout is designed to work inside agent coding environments. Open the
+repository in Codex or Claude Code, start the local server, and ask the agent
+with a prompt that begins with `[Vibe_Layout]`.
+
+Agent rule:
+
+1. Submit the prompt to `POST /api/layouts`.
+2. Read the returned `agent_action.url` or `viewer_url`.
+3. Open that URL in the active agent browser surface:
+   - Codex: Codex in-app browser.
+   - Claude Code: Claude Code browser preview.
+4. Do not open `preview.png` as the primary result when a Viewer URL exists.
+
+The repository includes [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) so
+other agents can discover this rule when they work in the project.
+
+## Project Status And Next Work
+
+Vibe_Layout is an early but executable scaffold. The core workflow is working:
+prompt to spec, spec to GDS, GDS to preview, validation, Viewer, and artifact
+download.
+
+Recommended next work:
+
+- Add more MEMS, sensor, superconducting, RF, and microfluidic layout families.
+- Add a richer parameter editor in Vibe Layout Viewer.
+- Add direct KLayout macro/plugin bridge support for live GUI synchronization.
+- Add design-rule profiles for different fabrication processes.
+- Add GitHub Actions CI for tests and example GDS generation.
+- Add contribution guidelines and issue templates.
