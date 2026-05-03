@@ -75,10 +75,14 @@ def create_app(
     @app.post("/api/layouts", dependencies=[Depends(require_auth)])
     def create_layout(request: LayoutRequest) -> dict:
         job = runner.run(request.prompt)
+        viewer_url = _viewer_url_for_job(app.state.vibe_layout_viewer_base_url, job.job_id, auth_token)
+        response = job.to_dict()
+        response["viewer_url"] = viewer_url
+        response["viewer_opened"] = False
         should_open_viewer = request.open_viewer if request.open_viewer is not None else auto_open_viewer
         if should_open_viewer and job.status == "completed":
-            _open_viewer_for_job(app.state.vibe_layout_viewer_base_url, job.job_id, auth_token)
-        return job.to_dict()
+            response["viewer_opened"] = _open_viewer_url(viewer_url)["opened"]
+        return response
 
     @app.get("/api/layouts/{job_id}", dependencies=[Depends(require_auth)])
     def get_layout(job_id: str) -> dict:
@@ -151,7 +155,14 @@ def _open_gds_in_klayout(path: Path) -> dict:
 
 
 def _open_viewer_for_job(base_url: str, job_id: str, token: str) -> dict:
-    url = f"{base_url}/viewer#job_id={quote(job_id)}&token={quote(token)}"
+    return _open_viewer_url(_viewer_url_for_job(base_url, job_id, token))
+
+
+def _viewer_url_for_job(base_url: str, job_id: str, token: str) -> str:
+    return f"{base_url.rstrip('/')}/viewer#job_id={quote(job_id)}&token={quote(token)}"
+
+
+def _open_viewer_url(url: str) -> dict:
     opened = webbrowser.open(url, new=2)
     return {"opened": opened, "url": url}
 

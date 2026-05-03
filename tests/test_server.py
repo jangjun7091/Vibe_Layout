@@ -49,6 +49,8 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     assert job["status"] == "completed"
     assert job["validation_passed"]
     assert "import klayout.db as kdb" in job["python_code"]
+    assert "/viewer#job_id=" in job["viewer_url"]
+    assert job["viewer_opened"] is False
     job_id = job["job_id"]
 
     status_response = client.get(f"/api/layouts/{job_id}", headers=headers)
@@ -65,13 +67,11 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
 def test_server_auto_opens_viewer_for_api_job(tmp_path: Path, monkeypatch) -> None:
     opened: dict[str, str] = {}
 
-    def fake_open_viewer(base_url: str, job_id: str, token: str) -> dict:
-        opened["base_url"] = base_url
-        opened["job_id"] = job_id
-        opened["token"] = token
-        return {"opened": True, "url": f"{base_url}/viewer#job_id={job_id}&token={token}"}
+    def fake_open_viewer_url(url: str) -> dict:
+        opened["url"] = url
+        return {"opened": True, "url": url}
 
-    monkeypatch.setattr("klayout_harness.server._open_viewer_for_job", fake_open_viewer)
+    monkeypatch.setattr("klayout_harness.server._open_viewer_url", fake_open_viewer_url)
     client = TestClient(
         create_app(
             token="secret",
@@ -86,9 +86,11 @@ def test_server_auto_opens_viewer_for_api_job(tmp_path: Path, monkeypatch) -> No
 
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
-    assert opened["base_url"] == "http://127.0.0.1:9999"
-    assert opened["job_id"] == response.json()["job_id"]
-    assert opened["token"] == "secret"
+    assert response.json()["viewer_opened"] is True
+    assert response.json()["viewer_url"].startswith("http://127.0.0.1:9999/viewer#job_id=")
+    assert opened["url"] == response.json()["viewer_url"]
+    assert f"job_id={response.json()['job_id']}" in opened["url"]
+    assert "token=secret" in opened["url"]
 
 
 def test_server_respects_open_viewer_false(tmp_path: Path, monkeypatch) -> None:
@@ -101,6 +103,8 @@ def test_server_respects_open_viewer_false(tmp_path: Path, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
+    assert response.json()["viewer_opened"] is False
+    assert "/viewer#job_id=" in response.json()["viewer_url"]
     assert opened == []
 
 
