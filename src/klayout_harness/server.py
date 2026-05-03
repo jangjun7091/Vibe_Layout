@@ -4,6 +4,7 @@ import argparse
 import os
 import secrets
 from pathlib import Path
+import subprocess
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
@@ -11,6 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 import uvicorn
 
+from .cli import find_klayout_executable
 from .jobs import LayoutJobRunner
 
 
@@ -86,6 +88,13 @@ def create_app(token: str | None = None, jobs_dir: str | Path = "build/jobs") ->
             raise HTTPException(status_code=404, detail="GDS not found")
         return FileResponse(job.gds_path, media_type="application/octet-stream", filename=Path(job.gds_path).name)
 
+    @app.post("/api/layouts/{job_id}/open-klayout", dependencies=[Depends(require_auth)])
+    def open_klayout(job_id: str) -> dict:
+        job = runner.load(job_id)
+        if job is None or job.gds_path is None:
+            raise HTTPException(status_code=404, detail="GDS not found")
+        return _open_gds_in_klayout(Path(job.gds_path))
+
     @app.websocket("/ws/jobs/{job_id}")
     async def websocket_job(websocket: WebSocket, job_id: str) -> None:
         ws_token = websocket.headers.get("authorization")
@@ -104,6 +113,28 @@ def create_app(token: str | None = None, jobs_dir: str | Path = "build/jobs") ->
             manager.disconnect(job_id, websocket)
 
     return app
+
+
+def _open_gds_in_klayout(path: Path) -> dict:
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="GDS file not found")
+
+    executable = find_klayout_executable()
+    if executable is not None:
+        subprocess.Popen([str(executable), str(path)])
+        return {"opened": True, "method": str(executable), "path": str(path)}
+
+    if os.name == "nt":
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]
+            return {"opened": True, "method": "windows-file-association", "path": str(path)}
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to open KLayout: {exc}") from exc
+
+    raise HTTPException(
+        status_code=404,
+        detail="KLayout executable not found. Set KLAYOUT_EXE or add klayout to PATH.",
+    )
 
 
 VIEWER_HTML = r"""<!doctype html>
@@ -133,7 +164,7 @@ VIEWER_HTML = r"""<!doctype html>
       color: var(--ink);
       background: #fff;
       display: grid;
-      grid-template-columns: 280px minmax(300px, 1fr) 260px;
+      grid-template-columns: 300px minmax(360px, 1fr) 300px;
       min-height: 100vh;
       overflow: hidden;
     }
@@ -205,7 +236,7 @@ VIEWER_HTML = r"""<!doctype html>
     }
     .button-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       gap: 8px;
     }
     .toolbar {
@@ -243,16 +274,19 @@ VIEWER_HTML = r"""<!doctype html>
       display: grid;
       place-items: center;
       padding: 28px;
+      overscroll-behavior: contain;
     }
     .canvas-shell {
+      width: 100%;
+      height: 100%;
       min-width: 260px;
       min-height: 260px;
       display: grid;
       place-items: center;
     }
     img {
-      transform-origin: center center;
       max-width: none;
+      max-height: none;
       border: 1px solid var(--line);
       background: #fff;
       box-shadow: 0 12px 32px rgba(20, 30, 45, .14);
@@ -270,6 +304,7 @@ VIEWER_HTML = r"""<!doctype html>
       line-height: 1.35;
       white-space: pre-wrap;
     }
+    #codeLog { max-height: 360px; }
     .meta {
       background: var(--panel-strong);
       border: 1px solid var(--line);
@@ -337,6 +372,7 @@ VIEWER_HTML = r"""<!doctype html>
       <div class="subtle">Download generated files</div>
     </div>
     <div class="button-grid">
+      <button id="openKLayout" class="secondary" disabled>Open KLayout</button>
       <button id="downloadGds" class="secondary" disabled>Download GDS</button>
       <button id="downloadPng" class="secondary" disabled>Download PNG</button>
     </div>
@@ -357,6 +393,8 @@ VIEWER_HTML = r"""<!doctype html>
     const jobLog = document.getElementById("jobLog");
     const codeLog = document.getElementById("codeLog");
     const preview = document.getElementById("preview");
+    const viewport = document.querySelector(".viewport");
+    const openKLayout = document.getElementById("openKLayout");
     const downloadGds = document.getElementById("downloadGds");
     const downloadPng = document.getElementById("downloadPng");
     let currentJob = null;
@@ -404,6 +442,7 @@ VIEWER_HTML = r"""<!doctype html>
         currentPreviewBlobUrl = URL.createObjectURL(previewBlob);
         preview.src = currentPreviewBlobUrl;
         preview.hidden = false;
+        openKLayout.disabled = false;
         downloadPng.disabled = false;
         downloadGds.disabled = false;
         setStatus(`Completed ${job.job_id}`);
@@ -414,6 +453,7 @@ VIEWER_HTML = r"""<!doctype html>
 
     async function generate() {
       generateButton.disabled = true;
+      openKLayout.disabled = true;
       downloadGds.disabled = true;
       downloadPng.disabled = true;
       preview.hidden = true;
@@ -440,27 +480,58 @@ VIEWER_HTML = r"""<!doctype html>
     }
 
     function applyZoom() {
-      preview.style.transform = `scale(${zoom})`;
+      preview.style.width = `${Math.round(zoom * 100)}%`;
       document.getElementById("zoomReset").textContent = `${Math.round(zoom * 100)}%`;
     }
 
     async function downloadArtifact(artifact, filename) {
       if (!currentJob) return;
-      const blob = await fetchArtifactBlob(currentJob, artifact);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      try {
+        setStatus(`Preparing ${filename}...`);
+        const blob = await fetchArtifactBlob(currentJob, artifact);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setStatus(`Download started: ${filename}`);
+      } catch (error) {
+        setStatus(`Download failed: ${error}`, true);
+      }
     }
 
-    document.getElementById("zoomIn").addEventListener("click", () => { zoom = Math.min(4, zoom * 1.25); applyZoom(); });
-    document.getElementById("zoomOut").addEventListener("click", () => { zoom = Math.max(.25, zoom / 1.25); applyZoom(); });
+    async function openCurrentInKLayout() {
+      if (!currentJob) return;
+      try {
+        setStatus("Opening KLayout...");
+        const response = await fetch(`/api/layouts/${currentJob.job_id}/open-klayout`, {
+          method: "POST",
+          headers: authHeaders(),
+        });
+        if (!response.ok) {
+          throw new Error(`${response.status} ${await response.text()}`);
+        }
+        const result = await response.json();
+        setStatus(`Opened in KLayout: ${result.method}`);
+      } catch (error) {
+        setStatus(`KLayout open failed: ${error}`, true);
+      }
+    }
+
+    document.getElementById("zoomIn").addEventListener("click", () => { zoom = Math.min(6, zoom * 1.25); applyZoom(); });
+    document.getElementById("zoomOut").addEventListener("click", () => { zoom = Math.max(.2, zoom / 1.25); applyZoom(); });
     document.getElementById("zoomReset").addEventListener("click", () => { zoom = 1; applyZoom(); });
+    viewport.addEventListener("wheel", (event) => {
+      if (!event.ctrlKey || preview.hidden) return;
+      event.preventDefault();
+      zoom = event.deltaY < 0 ? Math.min(6, zoom * 1.12) : Math.max(.2, zoom / 1.12);
+      applyZoom();
+    }, { passive: false });
     generateButton.addEventListener("click", generate);
+    openKLayout.addEventListener("click", openCurrentInKLayout);
     downloadGds.addEventListener("click", () => downloadArtifact("layout.gds", "layout.gds"));
     downloadPng.addEventListener("click", () => downloadArtifact("preview.png", "preview.png"));
     applyZoom();

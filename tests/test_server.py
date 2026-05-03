@@ -31,6 +31,8 @@ def test_server_serves_viewer_page(tmp_path: Path) -> None:
     assert "Layout Preview" in response.text
     assert "Artifacts" in response.text
     assert "Generated Code" in response.text
+    assert "Open KLayout" in response.text
+    assert "ctrlKey" in response.text
 
 
 def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
@@ -55,6 +57,25 @@ def test_server_creates_job_and_serves_artifacts(tmp_path: Path) -> None:
     assert preview_response.headers["content-type"] == "image/png"
     assert gds_response.status_code == 200
     assert len(gds_response.content) > 0
+
+
+def test_server_opens_job_in_klayout(tmp_path: Path, monkeypatch) -> None:
+    client = TestClient(create_app(token="secret", jobs_dir=tmp_path))
+    headers = {"Authorization": "Bearer secret"}
+    job = client.post("/api/layouts", json={"prompt": PROMPT}, headers=headers).json()
+    opened: dict[str, str] = {}
+
+    def fake_open(path: Path) -> dict:
+        opened["path"] = str(path)
+        return {"opened": True, "method": "test", "path": str(path)}
+
+    monkeypatch.setattr("klayout_harness.server._open_gds_in_klayout", fake_open)
+
+    response = client.post(f"/api/layouts/{job['job_id']}/open-klayout", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["opened"] is True
+    assert opened["path"].endswith(".gds")
 
 
 def test_server_websocket_replays_ordered_events(tmp_path: Path) -> None:
