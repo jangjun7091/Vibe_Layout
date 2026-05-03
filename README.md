@@ -41,6 +41,20 @@ This constrained request creates a `CHIP_ROOT` cell, an `ELECTRODE_UNIT`
 subcell, a centered `50 um x 800 um` electrode on layer `(1, 0)`, and a
 `1 mm x 1 mm` root-cell frame.
 
+To open the generated file in the KLayout GUI on Windows, install KLayout GUI
+and use one of these options:
+
+```powershell
+$env:KLAYOUT_EXE = "C:\Path\To\klayout.exe"
+vibe-layout $prompt --open
+```
+
+or:
+
+```powershell
+vibe-layout $prompt --open --klayout-exe "C:\Path\To\klayout.exe"
+```
+
 ## Real GDS Output
 
 Install KLayout Python bindings so `klayout.db` or `pya` is importable, then use
