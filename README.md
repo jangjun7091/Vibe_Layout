@@ -5,6 +5,19 @@ Harness-based scaffold for building an intelligent KLayout design agent.
 The project bridges high-level intent with precision GDS output by forcing each
 request through three executable harnesses before a layout is accepted.
 
+## Result Gallery
+
+Representative generated previews are committed under `docs/images/` so the
+GitHub project page shows the current layout capabilities at a glance.
+
+| Electrode unit | Bio sensor micro-channel |
+| --- | --- |
+| ![Centered electrode unit](docs/images/electrode-unit.png) | ![Bio sensor micro-channel](docs/images/micro-channel.png) |
+
+| 6-terminal Hall bar | Nano-gap array |
+| --- | --- |
+| ![Standard 6-terminal Hall bar](docs/images/hall-bar-6t.png) | ![Tunneling nano-gap array](docs/images/nanogap-array.png) |
+
 ## Architecture
 
 - Semantic Harness: converts user intent into typed physical parameters in
@@ -35,7 +48,7 @@ variables:
 
 ```powershell
 $prompt = @'
-Vibe_Layout, $1mm \times 1mm$ root cell 'CHIP_ROOT'. Create sub cell 'ELECTRODE_UNIT' with width $50\mu m$ and length $800\mu m$ on Microwriter layer (1, 0).
+[Vibe_Layout] $1mm \times 1mm$ root cell 'CHIP_ROOT'. Create sub cell 'ELECTRODE_UNIT' with width $50\mu m$ and length $800\mu m$ on Microwriter layer (1, 0).
 '@
 vibe-layout $prompt --open
 ```
