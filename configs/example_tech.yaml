@@ -1,0 +1,14 @@
+dbu_um: 0.001
+layers:
+  M1:
+    layer: 1
+    datatype: 0
+  TEXT:
+    layer: 10
+    datatype: 0
+parameters:
+  cell_width_um: 20.0
+  cell_height_um: 10.0
+rules:
+  min_width_um: 0.2
+  min_spacing_um: 0.2
