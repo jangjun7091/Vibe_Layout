@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .cad import RecordingBackend
 from .context import DesignContext
-from .semantic import ElectrodeLayoutSpec, maps_exactly_to_dbu
+from .semantic import ElectrodeLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, maps_exactly_to_dbu
 
 
 @dataclass(frozen=True)
@@ -92,15 +92,12 @@ class FeedbackHarness:
         return ValidationReport(passed=not findings, findings=findings)
 
     def validate_electrode_spec(self, spec: ElectrodeLayoutSpec) -> ValidationReport:
+        return self.validate_layout_spec(spec)
+
+    def validate_layout_spec(self, spec: LayoutSpec) -> ValidationReport:
         findings: list[ValidationFinding] = []
         resolution = spec.rules.minimum_resolution_um
-        dimensions = {
-            "root_width_um": spec.root_width_um,
-            "root_height_um": spec.root_height_um,
-            "electrode_width_um": spec.electrode_width_um,
-            "electrode_length_um": spec.electrode_length_um,
-            "frame_width_um": spec.frame_width_um,
-        }
+        dimensions = _spec_dimensions(spec)
         for name, value in dimensions.items():
             if value <= 0:
                 findings.append(_finding("geometry.positive_dimension", None, None, f"{name} must be positive."))
@@ -125,7 +122,10 @@ class FeedbackHarness:
         return ValidationReport(passed=not findings, findings=findings)
 
     def validate_gds_electrode(self, path: str | Path, spec: ElectrodeLayoutSpec) -> ValidationReport:
-        findings = list(self.validate_electrode_spec(spec).findings)
+        return self.validate_gds_layout(path, spec)
+
+    def validate_gds_layout(self, path: str | Path, spec: LayoutSpec) -> ValidationReport:
+        findings = list(self.validate_layout_spec(spec).findings)
         try:
             import klayout.db as kdb
         except ModuleNotFoundError:
@@ -148,22 +148,23 @@ class FeedbackHarness:
             )
 
         root = layout.cell(spec.root_cell)
-        unit = layout.cell(spec.unit_cell)
+        child_cell_name = spec.unit_cell if isinstance(spec, ElectrodeLayoutSpec) else spec.channel_cell
+        unit = layout.cell(child_cell_name)
         if root is None:
             findings.append(_finding("cell.missing", spec.root_cell, None, f"Missing cell '{spec.root_cell}'."))
         if unit is None:
-            findings.append(_finding("cell.missing", spec.unit_cell, None, f"Missing cell '{spec.unit_cell}'."))
+            findings.append(_finding("cell.missing", child_cell_name, None, f"Missing cell '{child_cell_name}'."))
         if root is None or unit is None:
             return ValidationReport(passed=False, findings=findings)
 
-        instance_count = sum(1 for inst in root.each_inst() if inst.cell.name == spec.unit_cell)
+        instance_count = sum(1 for inst in root.each_inst() if inst.cell.name == child_cell_name)
         if instance_count != 1:
             findings.append(
                 _finding(
                     "hierarchy.instance",
                     spec.root_cell,
                     None,
-                    f"Expected one '{spec.unit_cell}' instance in '{spec.root_cell}', found {instance_count}.",
+                    f"Expected one '{child_cell_name}' instance in '{spec.root_cell}', found {instance_count}.",
                 )
             )
 
@@ -172,26 +173,46 @@ class FeedbackHarness:
         unit_shapes = unit.shapes(layer_index).size()
         if root_shapes < 1:
             findings.append(_finding("layer.missing", spec.root_cell, spec.layer_name, "Root has no frame geometry."))
-        if unit_shapes != 1:
+        if isinstance(spec, ElectrodeLayoutSpec) and unit_shapes != 1:
             findings.append(
                 _finding(
                     "geometry.electrode_count",
-                    spec.unit_cell,
+                    child_cell_name,
                     spec.layer_name,
                     f"Expected one electrode shape, found {unit_shapes}.",
                 )
             )
+        if isinstance(spec, MicroChannelLayoutSpec) and unit_shapes < spec.lane_count:
+            findings.append(
+                _finding(
+                    "geometry.channel_count",
+                    child_cell_name,
+                    spec.layer_name,
+                    f"Expected at least {spec.lane_count} channel lane shapes, found {unit_shapes}.",
+                )
+            )
 
         _expect_bbox(findings, root.bbox(), layout.dbu, spec.root_width_um, spec.root_height_um, spec.root_cell, spec.layer_name)
-        _expect_bbox(
-            findings,
-            unit.bbox(),
-            layout.dbu,
-            spec.electrode_width_um,
-            spec.electrode_length_um,
-            spec.unit_cell,
-            spec.layer_name,
-        )
+        if isinstance(spec, ElectrodeLayoutSpec):
+            _expect_bbox(
+                findings,
+                unit.bbox(),
+                layout.dbu,
+                spec.electrode_width_um,
+                spec.electrode_length_um,
+                child_cell_name,
+                spec.layer_name,
+            )
+        else:
+            _expect_bbox(
+                findings,
+                unit.bbox(),
+                layout.dbu,
+                spec.lane_length_um + spec.port_size_um * 2,
+                spec.active_height_um + spec.port_size_um - spec.channel_width_um,
+                child_cell_name,
+                spec.layer_name,
+            )
         return ValidationReport(passed=not findings, findings=findings)
 
 
@@ -236,3 +257,23 @@ def _expect_bbox(
                 f"Expected bbox {expected_width_um:g}um x {expected_height_um:g}um, found {width_um:g}um x {height_um:g}um.",
             )
         )
+
+
+def _spec_dimensions(spec: LayoutSpec) -> dict[str, float]:
+    if isinstance(spec, ElectrodeLayoutSpec):
+        return {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "electrode_width_um": spec.electrode_width_um,
+            "electrode_length_um": spec.electrode_length_um,
+            "frame_width_um": spec.frame_width_um,
+        }
+    return {
+        "root_width_um": spec.root_width_um,
+        "root_height_um": spec.root_height_um,
+        "channel_width_um": spec.channel_width_um,
+        "channel_pitch_um": spec.channel_pitch_um,
+        "lane_length_um": spec.lane_length_um,
+        "port_size_um": spec.port_size_um,
+        "frame_width_um": spec.frame_width_um,
+    }

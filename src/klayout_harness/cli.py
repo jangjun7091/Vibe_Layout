@@ -9,7 +9,7 @@ import subprocess
 from .cad import CADHarness
 from .actuation import ToolActuationHarness
 from .feedback import FeedbackHarness, ValidationReport
-from .semantic import ElectrodeLayoutSpec, SemanticHarness
+from .semantic import ElectrodeLayoutSpec, LayoutSpec, MicroChannelLayoutSpec, SemanticHarness
 
 
 def main() -> int:
@@ -35,7 +35,7 @@ def main() -> int:
     print(_engineering_analysis(spec))
     print(_python_code(actuation, output_path))
 
-    spec_report = feedback.validate_electrode_spec(spec)
+    spec_report = feedback.validate_layout_spec(spec)
     if not spec_report.passed:
         print(_design_validation(spec_report, None))
         print("generated=False")
@@ -50,7 +50,7 @@ def main() -> int:
         return 2
     actuation.build(cad)
     output_path = cad.write_gds(output_path).resolve()
-    gds_report = feedback.validate_gds_electrode(output_path, spec)
+    gds_report = feedback.validate_gds_layout(output_path, spec)
     print(_design_validation(gds_report, output_path))
     if not gds_report.passed:
         print(f"generated={output_path}")
@@ -62,18 +62,35 @@ def main() -> int:
     return 0
 
 
-def _engineering_analysis(spec: ElectrodeLayoutSpec) -> str:
+def _engineering_analysis(spec: LayoutSpec) -> str:
+    common = [
+        "Engineering Analysis",
+        f"- Root cell: {spec.root_cell} ({spec.root_width_um:g}um x {spec.root_height_um:g}um)",
+        f"- Layer: {spec.layer_name} = ({spec.layer}, {spec.datatype})",
+        f"- Fabrication: {spec.rules.process} minimum resolution {spec.rules.minimum_resolution_um:g}um",
+        f"- DBU: {spec.rules.dbu_um:g}um per database unit",
+    ]
+    if isinstance(spec, ElectrodeLayoutSpec):
+        return "\n".join(
+            common[:2]
+            + [
+                f"- Unit cell: {spec.unit_cell}",
+                f"- Electrode: {spec.electrode_width_um:g}um x {spec.electrode_length_um:g}um centered at unit origin",
+                f"- Hierarchy: {spec.root_cell} contains one {spec.unit_cell} instance at (0um, 0um)",
+            ]
+            + common[2:]
+        )
     return "\n".join(
-        [
-            "Engineering Analysis",
-            f"- Root cell: {spec.root_cell} ({spec.root_width_um:g}um x {spec.root_height_um:g}um)",
-            f"- Unit cell: {spec.unit_cell}",
-            f"- Electrode: {spec.electrode_width_um:g}um x {spec.electrode_length_um:g}um centered at unit origin",
-            f"- Hierarchy: {spec.root_cell} contains one {spec.unit_cell} instance at (0um, 0um)",
-            f"- Layer: {spec.layer_name} = ({spec.layer}, {spec.datatype})",
-            f"- Fabrication: {spec.rules.process} minimum resolution {spec.rules.minimum_resolution_um:g}um",
-            f"- DBU: {spec.rules.dbu_um:g}um per database unit",
+        common[:2]
+        + [
+            f"- Channel cell: {spec.channel_cell}",
+            f"- Structure: {spec.lane_count} serpentine lanes, {spec.channel_width_um:g}um width, {spec.channel_pitch_um:g}um pitch",
+            f"- Active lane length: {spec.lane_length_um:g}um",
+            f"- Inlet/outlet pads: {spec.port_size_um:g}um x {spec.port_size_um:g}um",
+            f"- Estimated centerline length: {spec.estimated_centerline_length_um:g}um",
+            f"- Hierarchy: {spec.root_cell} contains one {spec.channel_cell} instance at (0um, 0um)",
         ]
+        + common[2:]
     )
 
 
