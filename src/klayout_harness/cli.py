@@ -7,12 +7,9 @@ import shutil
 import subprocess
 
 from .cad import CADHarness
-from .design_request import (
-    build_electrode_layout,
-    default_context_for_request,
-    output_path_for_request,
-    parse_electrode_request,
-)
+from .actuation import ToolActuationHarness
+from .feedback import FeedbackHarness, ValidationReport
+from .semantic import ElectrodeLayoutSpec, SemanticHarness
 
 
 def main() -> int:
@@ -23,26 +20,90 @@ def main() -> int:
     parser.add_argument("--klayout-exe", help="Path to klayout.exe. Overrides KLAYOUT_EXE and PATH lookup.")
     args = parser.parse_args()
 
+    semantic = SemanticHarness()
     try:
-        request = parse_electrode_request(args.prompt)
+        spec = semantic.parse(args.prompt)
     except ValueError as exc:
         print("generated=False")
         print(f"reason={exc}")
         return 2
-    context = default_context_for_request()
+    actuation = ToolActuationHarness(spec)
+    output_path = actuation.output_path(args.out_dir).resolve()
+    context = actuation.create_context()
+    feedback = FeedbackHarness(context)
+
+    print(_engineering_analysis(spec))
+    print(_python_code(actuation, output_path))
+
+    spec_report = feedback.validate_electrode_spec(spec)
+    if not spec_report.passed:
+        print(_design_validation(spec_report, None))
+        print("generated=False")
+        return 3
+
     try:
         cad = CADHarness(context)
     except RuntimeError as exc:
+        print(_design_validation(spec_report, None))
         print(f"generated=False")
         print(f"reason={exc}")
         return 2
-    build_electrode_layout(request, cad)
-    output_path = cad.write_gds(output_path_for_request(request, args.out_dir)).resolve()
+    actuation.build(cad)
+    output_path = cad.write_gds(output_path).resolve()
+    gds_report = feedback.validate_gds_electrode(output_path, spec)
+    print(_design_validation(gds_report, output_path))
+    if not gds_report.passed:
+        print(f"generated={output_path}")
+        return 3
 
     print(f"generated={output_path}")
     if args.open:
         _open_in_klayout(output_path, args.klayout_exe)
     return 0
+
+
+def _engineering_analysis(spec: ElectrodeLayoutSpec) -> str:
+    return "\n".join(
+        [
+            "Engineering Analysis",
+            f"- Root cell: {spec.root_cell} ({spec.root_width_um:g}um x {spec.root_height_um:g}um)",
+            f"- Unit cell: {spec.unit_cell}",
+            f"- Electrode: {spec.electrode_width_um:g}um x {spec.electrode_length_um:g}um centered at unit origin",
+            f"- Hierarchy: {spec.root_cell} contains one {spec.unit_cell} instance at (0um, 0um)",
+            f"- Layer: {spec.layer_name} = ({spec.layer}, {spec.datatype})",
+            f"- Fabrication: {spec.rules.process} minimum resolution {spec.rules.minimum_resolution_um:g}um",
+            f"- DBU: {spec.rules.dbu_um:g}um per database unit",
+        ]
+    )
+
+
+def _python_code(actuation: ToolActuationHarness, output_path: Path) -> str:
+    return "\n".join(
+        [
+            "Python Code",
+            "```python",
+            actuation.equivalent_python_code(output_path).rstrip(),
+            "```",
+        ]
+    )
+
+
+def _design_validation(report: ValidationReport, output_path: Path | None) -> str:
+    lines = ["Design Validation", f"- Passed: {report.passed}"]
+    if output_path is not None:
+        lines.append(f"- GDS: {output_path}")
+    if report.findings:
+        lines.extend(f"- [{finding.rule_id}] {finding.message}" for finding in report.findings)
+    else:
+        lines.extend(
+            [
+                "- Resolution check: passed",
+                "- DBU mapping check: passed",
+                "- Polygon integrity check: passed",
+                "- Hierarchy/layer readback check: passed",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def _open_in_klayout(path: Path, explicit_executable: str | None = None) -> bool:

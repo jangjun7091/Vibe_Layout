@@ -3,10 +3,9 @@ from klayout_harness.design_request import default_context_for_request
 
 
 PROMPT = (
-    "Vibe_Layout, $1mm \\times 1mm$ 크기의 메인 셀 'CHIP_ROOT'를 생성해줘. "
-    "그 안에 'ELECTRODE_UNIT'이라는 서브 셀을 만들고, 폭 $50\\mu m$, "
-    "길이 $800\\mu m$의 박스를 중앙에 배치해. 단위는 반드시 $\\mu m$ 기준이어야 하며, "
-    "Microwriter에서 인식할 수 있도록 레이어는 (1, 0)으로 설정해줘."
+    "Vibe_Layout, $1mm \\times 1mm$ root cell 'CHIP_ROOT'. "
+    "Create sub cell 'ELECTRODE_UNIT' with width $50\\mu m$ and length $800\\mu m$ "
+    "on Microwriter layer (1, 0)."
 )
 
 
@@ -21,6 +20,7 @@ def test_parse_electrode_request() -> None:
     assert request.electrode_length_um == 800
     assert request.layer == 1
     assert request.datatype == 0
+    assert request.rules.minimum_resolution_um == 0.6
 
 
 def test_build_electrode_layout_uses_subcell_instance_and_microwriter_layer() -> None:

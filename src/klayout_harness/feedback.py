@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .cad import RecordingBackend
 from .context import DesignContext
+from .semantic import ElectrodeLayoutSpec, maps_exactly_to_dbu
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,15 @@ class FeedbackHarness:
             for op in backend.boxes:
                 width = abs(op.x2 - op.x1)
                 height = abs(op.y2 - op.y1)
+                if width <= 0 or height <= 0:
+                    findings.append(
+                        _finding(
+                            "geometry.positive_area",
+                            op.cell,
+                            op.layer.name,
+                            "Box must have positive closed rectangular area.",
+                        )
+                    )
                 if width < min_width_dbu or height < min_width_dbu:
                     findings.append(
                         _finding(
@@ -80,6 +91,109 @@ class FeedbackHarness:
 
         return ValidationReport(passed=not findings, findings=findings)
 
+    def validate_electrode_spec(self, spec: ElectrodeLayoutSpec) -> ValidationReport:
+        findings: list[ValidationFinding] = []
+        resolution = spec.rules.minimum_resolution_um
+        dimensions = {
+            "root_width_um": spec.root_width_um,
+            "root_height_um": spec.root_height_um,
+            "electrode_width_um": spec.electrode_width_um,
+            "electrode_length_um": spec.electrode_length_um,
+            "frame_width_um": spec.frame_width_um,
+        }
+        for name, value in dimensions.items():
+            if value <= 0:
+                findings.append(_finding("geometry.positive_dimension", None, None, f"{name} must be positive."))
+            if value < resolution:
+                findings.append(
+                    _finding(
+                        "drc.minimum_resolution",
+                        None,
+                        spec.layer_name,
+                        f"{name}={value:g}um is below Microwriter minimum resolution {resolution:g}um.",
+                    )
+                )
+            if not maps_exactly_to_dbu(value, spec.rules.dbu_um):
+                findings.append(
+                    _finding(
+                        "dbu.exact_mapping",
+                        None,
+                        None,
+                        f"{name}={value:g}um does not map cleanly to DBU {spec.rules.dbu_um:g}um.",
+                    )
+                )
+        return ValidationReport(passed=not findings, findings=findings)
+
+    def validate_gds_electrode(self, path: str | Path, spec: ElectrodeLayoutSpec) -> ValidationReport:
+        findings = list(self.validate_electrode_spec(spec).findings)
+        try:
+            import klayout.db as kdb
+        except ModuleNotFoundError:
+            return ValidationReport(
+                passed=False,
+                findings=findings
+                + [_finding("tool.klayout_missing", None, None, "klayout.db is required for real GDS readback.")],
+            )
+
+        layout = kdb.Layout()
+        layout.read(str(path))
+        if layout.dbu != spec.rules.dbu_um:
+            findings.append(
+                _finding(
+                    "dbu.value",
+                    None,
+                    None,
+                    f"Expected DBU {spec.rules.dbu_um:g}um, found {layout.dbu:g}um.",
+                )
+            )
+
+        root = layout.cell(spec.root_cell)
+        unit = layout.cell(spec.unit_cell)
+        if root is None:
+            findings.append(_finding("cell.missing", spec.root_cell, None, f"Missing cell '{spec.root_cell}'."))
+        if unit is None:
+            findings.append(_finding("cell.missing", spec.unit_cell, None, f"Missing cell '{spec.unit_cell}'."))
+        if root is None or unit is None:
+            return ValidationReport(passed=False, findings=findings)
+
+        instance_count = sum(1 for inst in root.each_inst() if inst.cell.name == spec.unit_cell)
+        if instance_count != 1:
+            findings.append(
+                _finding(
+                    "hierarchy.instance",
+                    spec.root_cell,
+                    None,
+                    f"Expected one '{spec.unit_cell}' instance in '{spec.root_cell}', found {instance_count}.",
+                )
+            )
+
+        layer_index = layout.layer(spec.layer, spec.datatype)
+        root_shapes = root.shapes(layer_index).size()
+        unit_shapes = unit.shapes(layer_index).size()
+        if root_shapes < 1:
+            findings.append(_finding("layer.missing", spec.root_cell, spec.layer_name, "Root has no frame geometry."))
+        if unit_shapes != 1:
+            findings.append(
+                _finding(
+                    "geometry.electrode_count",
+                    spec.unit_cell,
+                    spec.layer_name,
+                    f"Expected one electrode shape, found {unit_shapes}.",
+                )
+            )
+
+        _expect_bbox(findings, root.bbox(), layout.dbu, spec.root_width_um, spec.root_height_um, spec.root_cell, spec.layer_name)
+        _expect_bbox(
+            findings,
+            unit.bbox(),
+            layout.dbu,
+            spec.electrode_width_um,
+            spec.electrode_length_um,
+            spec.unit_cell,
+            spec.layer_name,
+        )
+        return ValidationReport(passed=not findings, findings=findings)
+
 
 def _finding(rule_id: str, cell: str | None, layer: str | None, message: str) -> ValidationFinding:
     return ValidationFinding(
@@ -100,3 +214,25 @@ def _box_spacing(first, second) -> int:
     dx = max(second_x1 - first_x2, first_x1 - second_x2, 0)
     dy = max(second_y1 - first_y2, first_y1 - second_y2, 0)
     return max(dx, dy)
+
+
+def _expect_bbox(
+    findings: list[ValidationFinding],
+    bbox,
+    dbu_um: float,
+    expected_width_um: float,
+    expected_height_um: float,
+    cell: str,
+    layer: str,
+) -> None:
+    width_um = bbox.width() * dbu_um
+    height_um = bbox.height() * dbu_um
+    if abs(width_um - expected_width_um) > dbu_um or abs(height_um - expected_height_um) > dbu_um:
+        findings.append(
+            _finding(
+                "geometry.bbox",
+                cell,
+                layer,
+                f"Expected bbox {expected_width_um:g}um x {expected_height_um:g}um, found {width_um:g}um x {height_um:g}um.",
+            )
+        )
